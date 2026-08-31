@@ -17,6 +17,7 @@ import DownloadStep from './components/DownloadStep';
 import Footer from './components/Footer';
 
 const STEPS = ['Your details', 'Review topics', 'Build cohort', 'Your report', 'Download'];
+const LOGO_URL = 'https://github.com/sp8rks/tenuretrack/raw/main/src/tenuretrack/assets/tenuretrack-logo-dark.png';
 
 function App() {
   const tt = useTenureTrack();
@@ -39,21 +40,11 @@ function App() {
           <Container maxWidth="lg">
             <Box sx={{ display: 'flex', alignItems: 'center', py: 2, gap: 1.5 }}>
               <Box
-                sx={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 1,
-                  bgcolor: 'primary.main',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  fontWeight: 700,
-                  fontSize: '1.1rem',
-                }}
-              >
-                T
-              </Box>
+                component="img"
+                src={LOGO_URL}
+                alt="TenureTrack logo"
+                sx={{ width: 42, height: 42, objectFit: 'contain', borderRadius: 1 }}
+              />
               <Typography variant="h6" fontWeight={700} sx={{ letterSpacing: '-0.5px' }}>
                 TenureTrack App
               </Typography>
@@ -64,6 +55,13 @@ function App() {
                 Original concept by Taylor Sparks · University of Utah
               </Typography>
             </Box>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', pb: 1.5, pl: { sm: 6 }, textAlign: { xs: 'left', sm: 'left' } }}
+            >
+              This independent app is not affiliated with, endorsed by, or sanctioned by Professor Taylor Sparks or the University of Utah.
+            </Typography>
           </Container>
         </Paper>
 
