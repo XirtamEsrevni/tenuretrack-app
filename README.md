@@ -1,11 +1,5 @@
 <p align="center">
-  <span style="display: inline-flex; align-items: center; gap: 0.35rem;">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://github.com/sp8rks/tenuretrack/blob/main/assets/tenuretrack-logo-source.png?raw=true">
-      <img src="https://github.com/sp8rks/tenuretrack/blob/main/assets/tenuretrack-logo-source.png?raw=true" alt="tenuretrack" width="340">
-    </picture>
-    <strong style="color: #d32f2f; display: inline-block; transform: rotate(-45deg);">App</strong>
-  </span>
+  <img src="assets/tenuretrack-app-logo.svg" alt="tenuretrack App" width="340">
 </p>
 
 # tenuretrack App
