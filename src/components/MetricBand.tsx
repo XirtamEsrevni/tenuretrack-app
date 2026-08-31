@@ -1,7 +1,6 @@
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
-import LinearProgress from '@mui/material/LinearProgress';
 import type { SubjectRow, BenchmarkRow } from '../types';
 
 interface Props {
