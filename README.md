@@ -5,9 +5,8 @@
   </picture>
 </p>
 
-# TenureTrack
+# TenureTrack App [![Live App](https://img.shields.io/badge/App-Live_Demo-brightgreen?style=for-the-badge&logo=rocket)](https://tenure-track.netlify.app/)
 
-[![Continuous integration](https://github.com/sp8rks/tenuretrack/actions/workflows/ci.yml/badge.svg)](https://github.com/sp8rks/tenuretrack/actions/workflows/ci.yml)
 
 TenureTrack is a Vite-powered React application for exploring academic career outcomes.
 
