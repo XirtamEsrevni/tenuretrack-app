@@ -53,7 +53,10 @@ function reportToMarkdown(data: ReportData): string {
   const lines: string[] = [];
   lines.push(`# ${data.subjectName} against ${data.subfieldLabel}, at career year ${data.comparedAtYear}`);
   lines.push('');
-  lines.push(`${data.subjectName} started a tenure-line appointment at ${data.institution} in ${data.startYear} and is now in year ${data.currentCareerYear} of it.`);
+  lines.push(`${data.subjectName} started a tenure-line appointment at ${data.institution} in ${data.startYear} and is now in clock year ${data.currentCareerYear} of it.`);
+  if (data.clockExtensionYears > 0) {
+    lines.push(`The clock was stopped for ${data.clockExtensionYears} year${data.clockExtensionYears === 1 ? '' : 's'}. Papers are counted across all ${data.comparedAtYear + data.clockExtensionYears} calendar years of the appointment, and the comparison is at clock year ${data.comparedAtYear}.`);
+  }
   if (data.currentCareerYear > 6) {
     lines.push(`That is longer than the cohort's window, so both sides are read at year 6: a ${data.currentCareerYear}-year record set against a 6-year one would credit the extra years to one side.`);
   }

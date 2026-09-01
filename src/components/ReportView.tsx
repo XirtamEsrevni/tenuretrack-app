@@ -33,7 +33,7 @@ export default function ReportView({ report, onDownload, onReset }: Props) {
             {report.subjectName} against {report.subfieldLabel}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            {report.institution} · Started {report.startYear} · Now in year {report.currentCareerYear} · Compared at year {report.comparedAtYear}
+            {report.institution} · Started {report.startYear} · Clock year {report.currentCareerYear} · Compared at year {report.comparedAtYear}
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
@@ -55,6 +55,21 @@ export default function ReportView({ report, onDownload, onReset }: Props) {
           part of this says what any one career should look like.
         </Typography>
       </Alert>
+
+      {report.clockExtensionYears > 0 && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          <Typography variant="body2">
+            The tenure clock was stopped for {report.clockExtensionYears} year
+            {report.clockExtensionYears === 1 ? '' : 's'}. An extension grants calendar
+            time; it does not remove the work done during it. You are compared at clock
+            year {report.currentCareerYear} while papers are counted across all{' '}
+            {report.comparedAtYear + report.clockExtensionYears} calendar years of the
+            appointment. Reading you at calendar year {report.calendarYear} would compare
+            you against people who had uninterrupted time, which is what the extension
+            exists to prevent.
+          </Typography>
+        </Alert>
+      )}
 
       {report.currentCareerYear > 6 && (
         <Alert severity="info" sx={{ mb: 3 }}>

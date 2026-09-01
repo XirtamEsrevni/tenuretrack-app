@@ -108,7 +108,9 @@ export interface ReportData {
   institution: string;
   startYear: number;
   currentCareerYear: number;
+  calendarYear: number;
   comparedAtYear: number;
+  clockExtensionYears: number;
   cohortSize: number;
   institutionCount: number;
   startWindow: [number, number];

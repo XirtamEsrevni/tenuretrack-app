@@ -1,4 +1,5 @@
 import { cacheGet, cacheSet, hashKey } from './cache';
+import { shortId } from './ids';
 
 const BASE = 'https://api.openalex.org';
 
@@ -112,6 +113,7 @@ export class OpenAlexClient {
   private mailto: string;
   private apiKey: string;
   private onProgress?: (msg: string, detail?: string) => void;
+  private signal?: AbortSignal;
 
   constructor(mailto: string, apiKey: string) {
     this.mailto = mailto.trim();
@@ -120,6 +122,10 @@ export class OpenAlexClient {
 
   setProgressHandler(fn: (msg: string, detail?: string) => void): void {
     this.onProgress = fn;
+  }
+
+  setAbortSignal(signal: AbortSignal): void {
+    this.signal = signal;
   }
 
   private buildURL(endpoint: string, params: Record<string, string>, select?: string): string {
@@ -140,7 +146,7 @@ export class OpenAlexClient {
     const headers: Record<string, string> = this.apiKey
       ? { Authorization: `Bearer ${this.apiKey}` }
       : {};
-    const data = await fetchJSON<T>(url, headers);
+    const data = await fetchJSON<T>(url, headers, this.signal);
     await cacheSet(cacheKey, data);
     return data;
   }
@@ -225,11 +231,15 @@ export class OpenAlexClient {
         const url = this.buildURL('works', params, 'id,doi,title,publication_year,type,cited_by_count,primary_location,authorships,primary_topic');
         const cacheKey = hashKey(['works-batch', ids, cursor, this.mailto]);
         const data = await this.cachedFetch<{ results: OpenAlexWork[]; meta: { count: number; next_cursor?: string } }>(cacheKey, url);
+        const wanted = new Map(
+          batch.map((id) => [shortId(id).toUpperCase(), id] as const),
+        );
         for (const work of data.results) {
           for (const a of work.authorships) {
-            const aid = a.author.id;
-            if (!result.has(aid)) result.set(aid, []);
-            result.get(aid)!.push(work);
+            const requestedId = wanted.get(shortId(a.author.id).toUpperCase());
+            if (!requestedId) continue;
+            if (!result.has(requestedId)) result.set(requestedId, []);
+            result.get(requestedId)!.push(work);
           }
         }
         if (this.onProgress && i % 200 === 0) {

@@ -2,15 +2,29 @@ import { useState, useCallback, useRef } from 'react';
 import type { UserDetails, Topic, ReportData, ProgressEvent, WizardStep, FunnelRow } from '../types';
 import { OpenAlexClient, type OpenAlexAuthor } from '../lib/openalex';
 import { buildReport, type CohortMember } from '../lib/report';
-import { estimateStart, plausibleYears, coreTopicShare } from '../lib/career';
-import { isJournalArticle } from '../lib/metrics';
+import {
+  estimateStart,
+  plausibleYears,
+  coreTopicShare,
+  rankAndCap,
+  capCutoffShare,
+} from '../lib/career';
+import {
+  firstBylineYear,
+  HORIZON_YEARS,
+  MAX_CANDIDATES,
+  proposeTopics,
+  resolveInstitution,
+  resolvedStartWindow,
+} from '../lib/subject';
 import { exampleReport } from '../data/exampleData';
-
-const HORIZON_YEARS = 6;
 
 export function useTenureTrack() {
   const [step, setStep] = useState<WizardStep>('details');
   const [userDetails, setUserDetails] = useState<UserDetails | null>(null);
+  const [subjectAuthor, setSubjectAuthor] = useState<OpenAlexAuthor | null>(null);
+  const [institutionRor, setInstitutionRor] = useState<string>('');
+  const [institutionName, setInstitutionName] = useState<string>('');
   const [topics, setTopics] = useState<Topic[]>([]);
   const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([]);
   const [progress, setProgress] = useState<ProgressEvent[]>([]);
@@ -44,46 +58,46 @@ export function useTenureTrack() {
       const author = await client.getAuthorByOrcid(details.orcid);
       addProgress('init', `Found: ${author.display_name}`, `${author.works_count} works`);
 
+      const place = resolveInstitution(author, details.university);
+      if (!place) {
+        setError(
+          'Could not match that university to an OpenAlex affiliation on your record. Use the name as it appears on your papers, or paste a ROR.',
+        );
+        return;
+      }
+      setSubjectAuthor(author);
+      setInstitutionRor(place.ror);
+      setInstitutionName(place.name);
+      addProgress('init', `Institution: ${place.name}`, `ROR ${place.ror}`);
+
       const works = await client.getWorksByAuthor(author.id);
       addProgress('init', `Fetched ${works.length} of your works`);
 
-      const windowWorks = works.filter((w) => {
-        if (!isJournalArticle(w)) return false;
-        const careerYear = w.publication_year - details.startYear + 1;
-        return careerYear >= 1 && careerYear <= HORIZON_YEARS;
-      });
-
-      const topicMap = new Map<string, Topic>();
-      for (const work of windowWorks) {
-        const pt = work.primary_topic;
-        if (!pt) continue;
-        const id = pt.id.replace('https://openalex.org/', '');
-        const existing = topicMap.get(id);
-        if (existing) {
-          existing.paperCount++;
-          const source = work.primary_location?.source?.display_name;
-          if (source && !existing.topVenues.includes(source)) {
-            existing.topVenues.push(source);
-          }
-        } else {
-          const source = work.primary_location?.source?.display_name;
-          topicMap.set(id, {
-            id,
-            name: pt.display_name,
-            paperCount: 1,
-            topVenues: source ? [source] : [],
-          });
-        }
+      const first = firstBylineYear(works, author.id, place.ror);
+      if (first != null && Math.abs(first - details.startYear) > 1) {
+        addProgress(
+          'init',
+          `Start year check: first ${place.name} byline is ${first}, appointment given as ${details.startYear}.`,
+          'A gap of more than a year is often a typo; papers lagging the appointment by one year is normal.',
+        );
       }
 
-      const proposedTopics = [...topicMap.values()]
-        .filter((t) => t.paperCount >= 1)
-        .sort((a, b) => b.paperCount - a.paperCount)
-        .slice(0, 6);
+      const { topics: proposed, basis } = proposeTopics(
+        works,
+        author.id,
+        place.ror,
+        details.startYear,
+      );
+      if (basis !== 'anchored') {
+        addProgress(
+          'init',
+          `Fewer than five institution-anchored papers, so topics were proposed from ${basis === 'since_start' ? 'every article since the appointment' : 'the whole record'}.`,
+        );
+      }
 
-      setTopics(proposedTopics);
-      setSelectedTopicIds(proposedTopics.map((t) => t.id));
-      addProgress('init', `Proposed ${proposedTopics.length} topics from your papers`);
+      setTopics(proposed);
+      setSelectedTopicIds(proposed.map((t) => t.id));
+      addProgress('init', `Proposed ${proposed.length} topics from your papers`);
       setStep('topics');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -105,7 +119,7 @@ export function useTenureTrack() {
   }, []);
 
   const runBuild = useCallback(async () => {
-    if (!userDetails) return;
+    if (!userDetails || !subjectAuthor) return;
     setBuilding(true);
     setError(null);
     setProgress([]);
@@ -113,13 +127,14 @@ export function useTenureTrack() {
 
     const details = userDetails;
     const articleTypes = ['article'];
+    const nowYear = new Date().getFullYear();
+    const startWindow = resolvedStartWindow(details.startYear, HORIZON_YEARS, nowYear);
 
     try {
       const client = new OpenAlexClient(details.email, details.apiKey);
       client.setProgressHandler((msg, d) => addProgress('cohort', msg, d));
+      client.setAbortSignal(abortRef.current.signal);
 
-      addProgress('cohort', 'Resolving your author record...');
-      const subjectAuthor = await client.getAuthorByOrcid(details.orcid);
       addProgress('cohort', `Subject: ${subjectAuthor.display_name}`);
 
       addProgress('cohort', 'Fetching your works...');
@@ -181,57 +196,58 @@ export function useTenureTrack() {
       addProgress('cohort', `With university affiliation: ${eduFiltered.length}`);
 
       stepNum++;
-      const windowStart = details.startYear - 10;
-      const windowEnd = details.startYear + 10;
-      addProgress('cohort', `Filtering for plausible start years (${windowStart} to ${windowEnd})...`);
-
-      const candidateIds = eduFiltered.map((a) => a.id);
-      const maxCandidates = 200;
-      const cappedIds = candidateIds.slice(0, maxCandidates);
-      if (candidateIds.length > maxCandidates) {
-        addProgress('cohort', `Capped to top ${maxCandidates} candidates by topic share`);
-      }
-
-      addProgress('cohort', `Fetching works for ${cappedIds.length} candidates...`);
-      const worksMap = await client.getWorksByAuthors(cappedIds);
-      addProgress('cohort', 'Works fetched');
-
-      const plausibleFiltered: string[] = [];
-      for (const id of cappedIds) {
-        const works = worksMap.get(id) ?? [];
-        if (plausibleYears(works, windowStart, windowEnd)) {
-          plausibleFiltered.push(id);
-        }
-      }
+      addProgress('cohort', `Filtering for plausible start years (${startWindow[0]} to ${startWindow[1]})...`);
+      const plausibleFiltered = eduFiltered.filter((a) =>
+        plausibleYears(a, startWindow[0], startWindow[1]),
+      );
       funnelRows.push({
         step: stepNum,
         label: 'plausible years',
-        rule: `byline years could contain a start between ${windowStart} and ${windowEnd}`,
+        rule: `byline years could contain a start between ${startWindow[0]} and ${startWindow[1]}`,
         kept: plausibleFiltered.length,
-        dropped: cappedIds.length - plausibleFiltered.length,
+        dropped: eduFiltered.length - plausibleFiltered.length,
       });
       addProgress('cohort', `Plausible years: ${plausibleFiltered.length}`);
 
       stepNum++;
+      const capped = rankAndCap(plausibleFiltered, selectedTopicIds, MAX_CANDIDATES);
+      const cutoff = capCutoffShare(capped, selectedTopicIds, MAX_CANDIDATES);
+      if (cutoff != null) {
+        funnelRows.push({
+          step: stepNum,
+          label: 'most on topic',
+          rule: `the ${MAX_CANDIDATES} people with the largest core-topic share (effective floor ${cutoff.toFixed(2)})`,
+          kept: capped.length,
+          dropped: plausibleFiltered.length - capped.length,
+        });
+        addProgress('cohort', `Capped to the ${MAX_CANDIDATES} most on-topic candidates`, `share floor ${cutoff.toFixed(2)}`);
+        stepNum++;
+      }
+
+      const cappedIds = capped.map((a) => a.id);
+      addProgress('cohort', `Fetching works for ${cappedIds.length} candidates...`);
+      const worksMap = await client.getWorksByAuthors(cappedIds);
+      addProgress('cohort', 'Works fetched');
+
       addProgress('cohort', 'Estimating career starts...');
       const cohortMembers: CohortMember[] = [];
       let estimated = 0;
-      for (let i = 0; i < plausibleFiltered.length; i++) {
-        const authorId = plausibleFiltered[i];
-        const works = worksMap.get(authorId) ?? [];
-        const estimate = estimateStart(works, authorId, articleTypes);
+      for (let i = 0; i < capped.length; i++) {
+        const author = capped[i];
+        const works = worksMap.get(author.id) ?? [];
+        const estimate = estimateStart(works, author.id, articleTypes);
         if (estimate.confidence === 'high' && estimate.year != null) {
           estimated++;
-          if (estimate.year >= windowStart && estimate.year <= windowEnd) {
+          if (estimate.year >= startWindow[0] && estimate.year <= startWindow[1]) {
             cohortMembers.push({
-              authorId,
+              authorId: author.id,
               startYear: estimate.year,
               works,
             });
           }
         }
         if (i % 50 === 0) {
-          addProgress('cohort', `Estimating starts... ${i}/${plausibleFiltered.length}`, `${estimated} confident so far`);
+          addProgress('cohort', `Estimating starts... ${i}/${capped.length}`, `${estimated} confident so far`);
         }
       }
       funnelRows.push({
@@ -239,13 +255,13 @@ export function useTenureTrack() {
         label: 'career start estimated',
         rule: 'a confident first independent start (at least 2 led papers at one institution, with earlier trainee years elsewhere)',
         kept: estimated,
-        dropped: plausibleFiltered.length - estimated,
+        dropped: capped.length - estimated,
       });
       stepNum++;
       funnelRows.push({
         step: stepNum,
         label: 'start in window',
-        rule: `estimated start between ${windowStart} and ${windowEnd}`,
+        rule: `estimated start between ${startWindow[0]} and ${startWindow[1]}`,
         kept: cohortMembers.length,
         dropped: estimated - cohortMembers.length,
       });
@@ -253,21 +269,27 @@ export function useTenureTrack() {
 
       if (cohortMembers.length < 5) {
         addProgress('cohort', `Warning: cohort has only ${cohortMembers.length} people. Quartiles may be unreliable.`);
+      } else if (cohortMembers.length < 40) {
+        addProgress('cohort', `Warning: cohort has ${cohortMembers.length} people. Quartiles under 40 are noisy.`);
       }
 
       addProgress('report', 'Computing metrics and quartiles...');
       const subfieldLabel = topics.find((t) => t.id === selectedTopicIds[0])?.name ?? 'your subfield';
-      const result = buildReport(
-        subjectAuthor.display_name,
-        details.university,
-        details.startYear,
-        details.clockExtensionYears,
+      const result = buildReport({
+        subjectName: subjectAuthor.display_name,
+        institution: institutionName || details.university,
+        startYear: details.startYear,
+        clockExtension: details.clockExtensionYears,
         subjectWorks,
+        subjectAuthorId: subjectAuthor.id,
+        subjectInstitutionRor: institutionRor,
         cohortMembers,
         articleTypes,
         funnelRows,
         subfieldLabel,
-      );
+        startWindow,
+        nowYear,
+      });
 
       setReport(result.report);
       addProgress('report', 'Report ready.');
@@ -282,7 +304,7 @@ export function useTenureTrack() {
     } finally {
       setBuilding(false);
     }
-  }, [userDetails, selectedTopicIds, topics, addProgress]);
+  }, [userDetails, subjectAuthor, institutionRor, institutionName, selectedTopicIds, topics, addProgress]);
 
   const loadExample = useCallback(() => {
     setReport(exampleReport);
@@ -293,6 +315,9 @@ export function useTenureTrack() {
     abortRef.current?.abort();
     setStep('details');
     setUserDetails(null);
+    setSubjectAuthor(null);
+    setInstitutionRor('');
+    setInstitutionName('');
     setTopics([]);
     setSelectedTopicIds([]);
     setProgress([]);
