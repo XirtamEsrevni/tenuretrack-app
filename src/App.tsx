@@ -5,7 +5,7 @@ import Typography from '@mui/material/Typography';
 import Container from '@mui/material/Container';
 import Stepper from '@mui/material/Stepper';
 import Step from '@mui/material/Step';
-import StepLabel from '@mui/material/StepLabel';
+import StepButton from '@mui/material/StepButton';
 import Paper from '@mui/material/Paper';
 import theme from './theme';
 import { useTenureTrack } from './hooks/useTenureTrack';
@@ -45,32 +45,30 @@ function App() {
                 alt="TenureTrack logo"
                 sx={{ width: 42, height: 42, objectFit: 'contain', borderRadius: 1 }}
               />
-              <Typography variant="h6" fontWeight={700} sx={{ letterSpacing: '-0.5px' }}>
+              <Typography variant="h6" fontWeight={700} sx={{ letterSpacing: '-0.5px', ml: { sm: 4 } }}>
                 TenureTrack App
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
                 Where does your record stand?
               </Typography>
-              <Typography variant="caption" color="text.disabled" sx={{ ml: 2, display: { xs: 'none', sm: 'block' } }}>
+              <Typography variant="caption" color="text.disabled" sx={{ ml: 2, display: { xs: 'none', sm: 'block' }, flex: 1, textAlign: 'center', pr: 6 }}>
                 Original concept by Taylor Sparks · University of Utah
               </Typography>
             </Box>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ display: 'block', pb: 1.5, pl: { sm: 6 }, textAlign: { xs: 'left', sm: 'left' } }}
-            >
-              This independent app is not affiliated with, endorsed by, or sanctioned by Professor Taylor Sparks or the University of Utah.
-            </Typography>
           </Container>
         </Paper>
 
         <Container maxWidth="lg" sx={{ py: 4, flex: 1 }}>
           <Box sx={{ maxWidth: 800, mx: 'auto', mb: 4 }}>
-            <Stepper activeStep={activeStep} alternativeLabel>
-              {STEPS.map((label) => (
+            <Stepper activeStep={activeStep} alternativeLabel nonLinear>
+              {STEPS.map((label, index) => (
                 <Step key={label}>
-                  <StepLabel>{label}</StepLabel>
+                  <StepButton
+                    onClick={() => tt.setStep(['details', 'topics', 'build', 'report', 'download'][index] as typeof tt.step)}
+                    disabled={index > activeStep || tt.submittingDetails || tt.building}
+                  >
+                    {label}
+                  </StepButton>
                 </Step>
               ))}
             </Stepper>
@@ -82,6 +80,8 @@ function App() {
                 onSubmit={tt.submitDetails}
                 onLoadExample={tt.loadExample}
                 error={tt.error}
+                initialDetails={tt.userDetails}
+                submitting={tt.submittingDetails}
               />
             )}
 

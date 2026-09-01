@@ -16,6 +16,7 @@ export function useTenureTrack() {
   const [progress, setProgress] = useState<ProgressEvent[]>([]);
   const [report, setReport] = useState<ReportData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [submittingDetails, setSubmittingDetails] = useState(false);
   const [building, setBuilding] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -33,6 +34,7 @@ export function useTenureTrack() {
       return;
     }
 
+    setSubmittingDetails(true);
     addProgress('init', 'Resolving your ORCID with OpenAlex...');
 
     try {
@@ -90,6 +92,8 @@ export function useTenureTrack() {
       } else {
         setError(msg);
       }
+    } finally {
+      setSubmittingDetails(false);
     }
   }, [addProgress]);
 
@@ -102,6 +106,7 @@ export function useTenureTrack() {
     if (!userDetails) return;
     setBuilding(true);
     setError(null);
+    setSubmittingDetails(false);
     setProgress([]);
     abortRef.current = new AbortController();
 
@@ -304,6 +309,7 @@ export function useTenureTrack() {
     progress,
     report,
     error,
+    submittingDetails,
     building,
     submitDetails,
     confirmTopics,

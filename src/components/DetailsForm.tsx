@@ -10,6 +10,7 @@ import InfoIcon from '@mui/icons-material/Info';
 import Link from '@mui/material/Link';
 import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
+import LinearProgress from '@mui/material/LinearProgress';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import type { UserDetails } from '../types';
@@ -18,18 +19,20 @@ interface Props {
   onSubmit: (details: UserDetails) => void;
   onLoadExample: () => void;
   error: string | null;
+  initialDetails: UserDetails | null;
+  submitting: boolean;
 }
 
 const ORCID_RE = /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export default function DetailsForm({ onSubmit, onLoadExample, error }: Props) {
-  const [email, setEmail] = useState('');
-  const [orcid, setOrcid] = useState('');
-  const [university, setUniversity] = useState('');
-  const [startYear, setStartYear] = useState('');
-  const [clockExtension, setClockExtension] = useState('0');
-  const [apiKey, setApiKey] = useState('');
+export default function DetailsForm({ onSubmit, onLoadExample, error, initialDetails, submitting }: Props) {
+  const [email, setEmail] = useState(initialDetails?.email ?? '');
+  const [orcid, setOrcid] = useState(initialDetails?.orcid ?? '');
+  const [university, setUniversity] = useState(initialDetails?.university ?? '');
+  const [startYear, setStartYear] = useState(initialDetails ? String(initialDetails.startYear) : '');
+  const [clockExtension, setClockExtension] = useState(initialDetails ? String(initialDetails.clockExtensionYears) : '0');
+  const [apiKey, setApiKey] = useState(initialDetails?.apiKey ?? '');
   const [showKey, setShowKey] = useState(false);
   const [touched, setTouched] = useState(false);
 
@@ -76,11 +79,20 @@ export default function DetailsForm({ onSubmit, onLoadExample, error }: Props) {
       </Alert>
 
       <Paper variant="outlined" sx={{ p: 3 }}>
+        {submitting && (
+          <Box sx={{ mb: 3 }} aria-live="polite">
+            <Typography variant="body2" color="primary" sx={{ mb: 1 }}>
+              Checking your OpenAlex record…
+            </Typography>
+            <LinearProgress />
+          </Box>
+        )}
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
           <TextField
             label="Email (for OpenAlex polite pool)"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            disabled={submitting}
             error={touched && !!errors.email}
             helperText={touched ? errors.email : 'Used only in the API request to OpenAlex; not stored.'}
             type="email"
@@ -91,6 +103,7 @@ export default function DetailsForm({ onSubmit, onLoadExample, error }: Props) {
             label="ORCID"
             value={orcid}
             onChange={(e) => setOrcid(e.target.value)}
+            disabled={submitting}
             error={touched && !!errors.orcid}
             helperText={touched ? errors.orcid : 'Format: 0000-0000-0000-0000'}
             placeholder="0000-0000-0000-0000"
@@ -101,6 +114,7 @@ export default function DetailsForm({ onSubmit, onLoadExample, error }: Props) {
             label="University"
             value={university}
             onChange={(e) => setUniversity(e.target.value)}
+            disabled={submitting}
             error={touched && !!errors.university}
             helperText={touched ? errors.university : 'The institution where your appointment is held.'}
             fullWidth
@@ -111,6 +125,7 @@ export default function DetailsForm({ onSubmit, onLoadExample, error }: Props) {
               label="Appointment start year"
               value={startYear}
               onChange={(e) => setStartYear(e.target.value)}
+              disabled={submitting}
               error={touched && !!errors.startYear}
               helperText={touched ? errors.startYear : 'The year your tenure clock started.'}
               type="number"
@@ -120,6 +135,7 @@ export default function DetailsForm({ onSubmit, onLoadExample, error }: Props) {
               label="Clock extension years"
               value={clockExtension}
               onChange={(e) => setClockExtension(e.target.value)}
+              disabled={submitting}
               helperText="Stopped-clock years not counted."
               type="number"
               sx={{ flex: 1 }}
@@ -139,6 +155,7 @@ export default function DetailsForm({ onSubmit, onLoadExample, error }: Props) {
             label="OpenAlex API key (optional but recommended)"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
+            disabled={submitting}
             type={showKey ? 'text' : 'password'}
             helperText={
               <>
@@ -169,11 +186,11 @@ export default function DetailsForm({ onSubmit, onLoadExample, error }: Props) {
         )}
 
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>
-          <Button onClick={onLoadExample} color="inherit">
+          <Button onClick={onLoadExample} color="inherit" disabled={submitting}>
             View example report
           </Button>
-          <Button variant="contained" onClick={handleSubmit} size="large">
-            Continue
+          <Button variant="contained" onClick={handleSubmit} size="large" disabled={submitting}>
+            {submitting ? 'Checking details…' : 'Continue'}
           </Button>
         </Box>
       </Paper>

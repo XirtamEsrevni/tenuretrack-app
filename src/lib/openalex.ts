@@ -57,13 +57,40 @@ export interface OpenAlexTopic {
   display_name: string;
 }
 
+const RETRYABLE_STATUS_CODES = new Set([500, 502, 503, 504]);
+const MAX_REQUEST_ATTEMPTS = 3;
+
+const wait = (milliseconds: number) => new Promise<void>((resolve) => {
+  window.setTimeout(resolve, milliseconds);
+});
+
 async function fetchJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(url, { signal });
-  if (!res.ok) {
-    if (res.status === 429) throw new QuotaExhausted('OpenAlex daily quota exhausted');
-    throw new Error(`OpenAlex ${res.status}: ${await res.text()}`);
+  let lastStatus: number | undefined;
+
+  for (let attempt = 1; attempt <= MAX_REQUEST_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, { signal });
+      if (res.ok) return res.json();
+
+      if (res.status === 429) throw new QuotaExhausted('OpenAlex daily quota exhausted');
+      lastStatus = res.status;
+
+      if (!RETRYABLE_STATUS_CODES.has(res.status) || attempt === MAX_REQUEST_ATTEMPTS) break;
+    } catch (error) {
+      if (error instanceof QuotaExhausted || signal?.aborted) throw error;
+      if (attempt === MAX_REQUEST_ATTEMPTS) {
+        throw new Error('Unable to reach OpenAlex. Please check your connection and try again.');
+      }
+    }
+
+    // A short exponential backoff avoids surfacing a transient OpenAlex outage to the user.
+    await wait(500 * 2 ** (attempt - 1));
   }
-  return res.json();
+
+  if (lastStatus) {
+    throw new Error(`OpenAlex is temporarily unavailable (HTTP ${lastStatus}). Please try again in a few minutes.`);
+  }
+  throw new Error('Unable to reach OpenAlex. Please check your connection and try again.');
 }
 
 export class QuotaExhausted extends Error {
@@ -124,13 +151,11 @@ export class OpenAlexClient {
   async getAuthorsByTopic(topicId: string, countries: string[]): Promise<OpenAlexAuthor[]> {
     const all: OpenAlexAuthor[] = [];
     let cursor = '*';
-    let page = 0;
     const countryFilter = countries.length > 0
       ? `,affiliations.institution.country_code:${countries.join('|')}`
       : '';
     const filter = `topics.id:${topicId},works_count:>10${countryFilter}`;
     while (true) {
-      page++;
       const params: Record<string, string> = { filter, cursor };
       const url = this.buildURL('authors', params);
       const cacheKey = hashKey(['authors-topic', topicId, countries.join(','), cursor, this.mailto]);
