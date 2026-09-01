@@ -69,12 +69,12 @@ async function throttle(): Promise<void> {
   lastRequestTime = Date.now();
 }
 
-async function fetchJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
+async function fetchJSON<T>(url: string, headers: HeadersInit, signal?: AbortSignal): Promise<T> {
   const MAX_RETRIES = 5;
   const BASE_DELAY = 1500;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     await throttle();
-    const res = await fetch(url, { signal });
+    const res = await fetch(url, { headers, signal });
     if (res.ok) return res.json();
     if (res.status === 429) throw new QuotaExhausted('OpenAlex daily quota exhausted');
     if (res.status >= 500 && attempt < MAX_RETRIES) {
@@ -84,10 +84,8 @@ async function fetchJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
     }
     if (res.status >= 500) {
       throw new Error(
-        'OpenAlex is experiencing server issues (500 Internal Server Error). ' +
-        'This is a temporary problem on their end, not an issue with your input. ' +
-        'Please try again in a few minutes. Adding a free API key from openalex.org/settings/api ' +
-        'can also help by giving you access to a higher-rate pool.'
+        `OpenAlex returned ${res.status} after ${MAX_RETRIES + 1} attempts. ` +
+        'Please try again in a few minutes. Any supplied API key was sent with this request.'
       );
     }
     const body = await res.text();
@@ -116,8 +114,8 @@ export class OpenAlexClient {
   private onProgress?: (msg: string, detail?: string) => void;
 
   constructor(mailto: string, apiKey: string) {
-    this.mailto = mailto;
-    this.apiKey = apiKey;
+    this.mailto = mailto.trim();
+    this.apiKey = apiKey.trim();
   }
 
   setProgressHandler(fn: (msg: string, detail?: string) => void): void {
@@ -125,8 +123,7 @@ export class OpenAlexClient {
   }
 
   private buildURL(endpoint: string, params: Record<string, string>, select?: string): string {
-    const all: Record<string, string> = { ...params, mailto: this.mailto, per_page: '200' };
-    if (this.apiKey) all.api_key = this.apiKey;
+    const all: Record<string, string> = { ...params, mailto: this.mailto, 'per-page': '200' };
     if (select) all.select = select;
     const qs = Object.entries(all)
       .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
@@ -137,7 +134,13 @@ export class OpenAlexClient {
   private async cachedFetch<T>(cacheKey: string, url: string): Promise<T> {
     const cached = await cacheGet(cacheKey);
     if (cached) return cached as T;
-    const data = await fetchJSON<T>(url);
+    // OpenAlex account keys are bearer tokens, not URL query parameters. Keeping
+    // the key in the Authorization header prevents it from leaking into caches,
+    // browser history, or error messages.
+    const headers: Record<string, string> = this.apiKey
+      ? { Authorization: `Bearer ${this.apiKey}` }
+      : {};
+    const data = await fetchJSON<T>(url, headers);
     await cacheSet(cacheKey, data);
     return data;
   }
