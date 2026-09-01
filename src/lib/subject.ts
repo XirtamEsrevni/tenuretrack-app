@@ -30,9 +30,13 @@ function asInstitution(value: unknown): OpenAlexInstitution | null {
 }
 
 function collectInstitutions(author: OpenAlexAuthor): OpenAlexInstitution[] {
-  const fromAffiliations = author.affiliations.map((a) => a.institution);
-  const fromLastKnown = (author.last_known_institutions ?? []).map((item) => asInstitution(item));
-  return [...fromAffiliations, ...fromLastKnown].filter((i): i is OpenAlexInstitution => Boolean(i?.display_name));
+  const fromAffiliations = (author.affiliations ?? [])
+    .map((a) => asInstitution(a.institution))
+    .filter((i): i is OpenAlexInstitution => Boolean(i));
+  const fromLastKnown = (author.last_known_institutions ?? [])
+    .map((item) => asInstitution(item))
+    .filter((i): i is OpenAlexInstitution => Boolean(i));
+  return [...fromAffiliations, ...fromLastKnown];
 }
 
 export function resolveInstitution(

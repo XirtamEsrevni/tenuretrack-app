@@ -17,7 +17,7 @@ export function isJournalArticle(work: OpenAlexWork): boolean {
   if (work.type !== 'article') return false;
   const source = work.primary_location?.source;
   if (!source) return false;
-  const name = source.display_name.toLowerCase();
+  const name = (source.display_name ?? '').toLowerCase();
   for (const preprint of PREPRINT_SERVERS) {
     if (name.includes(preprint)) return false;
   }
@@ -41,10 +41,13 @@ export function roleOf(work: OpenAlexWork, authorId: string): 'led' | 'first_not
 export function institutionsOn(work: OpenAlexWork, authorId: string): string[] {
   const authorship = work.authorships.find((a) => sameId(a.author.id, authorId));
   if (!authorship) return [];
-  return authorship.institutions
-    .map((i) => i.ror || i.id)
-    .filter(Boolean)
-    .map((v) => (v.startsWith('http') && v.includes('ror.org') ? shortRor(v) : v));
+  const out: string[] = [];
+  for (const inst of authorship.institutions) {
+    if (!inst.ror) continue;
+    const short = shortRor(inst.ror);
+    if (short && !out.includes(short)) out.push(short);
+  }
+  return out;
 }
 
 export function hasBylineAt(work: OpenAlexWork, authorId: string, ror: string): boolean {

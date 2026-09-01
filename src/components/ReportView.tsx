@@ -152,11 +152,13 @@ export default function ReportView({ report, onDownload, onReset }: Props) {
         </TableContainer>
       </Paper>
 
+      {report.chaperonePooled.some((r) => r.papers > 0) ? (
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         <Typography variant="h6" gutterBottom>
           The chaperone effect: who led the papers that reached those venues
         </Typography>
         <ChaperoneEffectChart report={report} />
+        {report.pairedPeople > 0 && (
         <Typography variant="body2" sx={{ mt: 2, mb: 2 }}>
           Comparing the same {report.pairedPeople} people against themselves, the median person
           placed {((report.chaperonePaired.find((r) => r.metric === 'median_led_share')?.value ?? 0) * 100).toFixed(1)}%
@@ -164,6 +166,7 @@ export default function ReportView({ report, onDownload, onReset }: Props) {
           {((report.chaperonePaired.find((r) => r.metric === 'median_middle_share')?.value ?? 0) * 100).toFixed(1)}%
           of the papers they did not (sign test p = {report.signTestP.toFixed(4)}).
         </Typography>
+        )}
         <TableContainer>
           <Table size="small">
             <TableHead>
@@ -191,6 +194,16 @@ export default function ReportView({ report, onDownload, onReset }: Props) {
           publishing&rdquo;, PNAS 2018 (doi 10.1073/pnas.1800471115).
         </Typography>
       </Paper>
+      ) : (
+      <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          The chaperone effect: who led the papers that reached those venues
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Too few papers with a resolvable venue impact to describe a chaperone effect for this cohort.
+        </Typography>
+      </Paper>
+      )}
 
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>

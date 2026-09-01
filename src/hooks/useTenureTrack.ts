@@ -17,7 +17,7 @@ import {
   resolveInstitution,
   resolvedStartWindow,
 } from '../lib/subject';
-import { sameId } from '../lib/ids';
+import { sameId, shortId } from '../lib/ids';
 import { exampleReport } from '../data/exampleData';
 
 export function useTenureTrack() {
@@ -137,6 +137,7 @@ export function useTenureTrack() {
     setBuilding(true);
     setError(null);
     setProgress([]);
+    abortRef.current?.abort();
     abortRef.current = new AbortController();
     const signal = abortRef.current.signal;
 
@@ -169,9 +170,8 @@ export function useTenureTrack() {
 
       const uniqueCandidates = new Map<string, OpenAlexAuthor>();
       for (const a of allCandidates) {
-        if (!sameId(a.id, subjectAuthor.id)) {
-          uniqueCandidates.set(a.id, a);
-        }
+        if (sameId(a.id, subjectAuthor.id)) continue;
+        uniqueCandidates.set(shortId(a.id).toUpperCase(), a);
       }
       funnelRows.push({
         step: stepNum,
@@ -199,7 +199,7 @@ export function useTenureTrack() {
       stepNum++;
       addProgress('cohort', 'Filtering for university affiliations...');
       const eduFiltered = shareFiltered.filter((a) =>
-        a.affiliations.some((aff) => aff.institution.type === 'education'),
+        (a.affiliations ?? []).some((aff) => aff.institution?.type === 'education'),
       );
       funnelRows.push({
         step: stepNum,
@@ -341,6 +341,7 @@ export function useTenureTrack() {
     setReport(null);
     setError(null);
     setBuilding(false);
+    setDetailsLoading(false);
   }, []);
 
   return {

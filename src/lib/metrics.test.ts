@@ -3,6 +3,7 @@ import {
   computeMetrics,
   computeTopQuartileCutoff,
   hasBylineAt,
+  institutionsOn,
   isJournalArticle,
 } from './metrics';
 import { hIndex } from './stats';
@@ -119,6 +120,28 @@ describe('window and metrics', () => {
     expect(hasBylineAt(works[0], ME, JOB)).toBe(true);
     expect(computeMetrics(works, ME, 2010, 6, ARTICLES, null, JOB).pubs).toBe(1);
     expect(computeMetrics(works, ME, 2010, 6, ARTICLES, null).pubs).toBe(2);
+  });
+});
+
+describe('institutionsOn', () => {
+  it('groups by ROR and ignores a byline with no ROR', () => {
+    const withRor = paper({ year: 2010, ror: JOB, position: 'last' });
+    const withoutRor = paper({ year: 2011, position: 'last' });
+    withoutRor.authorships[0].institutions = [
+      {
+        id: 'https://openalex.org/I1',
+        display_name: 'Some University',
+        ror: null,
+        type: 'education',
+      },
+    ];
+    expect(institutionsOn(withRor, ME)).toEqual([JOB]);
+    expect(institutionsOn(withoutRor, ME)).toEqual([]);
+  });
+
+  it('normalizes a ror.org URL to the short id', () => {
+    const work = paper({ year: 2010, ror: JOB });
+    expect(institutionsOn(work, ME)).toEqual([JOB]);
   });
 });
 

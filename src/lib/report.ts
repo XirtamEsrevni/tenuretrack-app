@@ -163,9 +163,10 @@ export function buildReport(input: BuildReportInput): BuildResult {
     const cohortRow = cohortAtComparison.find((r) => r.metric === metricKey)!;
     const subjectVal = metricValue(subjectMetrics, metricKey);
     const val = subjectVal ?? NaN;
-    const compared = metricKey !== 'citations';
+    const missing = subjectVal == null || isNaN(subjectVal);
+    const compared = metricKey !== 'citations' && !missing;
     let position = 'not compared';
-    if (compared && !isNaN(cohortRow.p25) && subjectVal != null && !isNaN(subjectVal)) {
+    if (compared && !isNaN(cohortRow.p25)) {
       position = positionOf(val, cohortRow.p25, cohortRow.p50, cohortRow.p75);
     }
     return {

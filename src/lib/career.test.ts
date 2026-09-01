@@ -148,6 +148,12 @@ describe('plausibleYears', () => {
   it('drops a record with no years', () => {
     expect(plausibleYears(makeAuthor({ years: [] }), 2008, 2018)).toBe(false);
   });
+
+  it('does not throw when the author record has no affiliations array', () => {
+    const a = makeAuthor({ years: [2010] });
+    (a as { affiliations?: unknown }).affiliations = undefined;
+    expect(plausibleYears(a, 2008, 2018)).toBe(false);
+  });
 });
 
 describe('rankAndCap', () => {
@@ -182,5 +188,11 @@ describe('rankAndCap', () => {
       ],
     });
     expect(coreTopicShare(a, ['T10001'])).toBeCloseTo(0.4);
+  });
+
+  it('treats a missing topics list as zero share', () => {
+    const a = makeAuthor({});
+    (a as { topics?: unknown }).topics = undefined;
+    expect(coreTopicShare(a, ['T10001'])).toBe(0);
   });
 });

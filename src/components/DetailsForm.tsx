@@ -124,13 +124,13 @@ export default function DetailsForm({ onSubmit, onLoadExample, error, loading, l
               label="Clock extension years"
               value={clockExtension}
               onChange={(e) => setClockExtension(e.target.value)}
-              helperText="Stopped-clock years not counted."
+              helperText="Years the clock was stopped. Work from those years still counts."
               type="number"
               sx={{ flex: 1 }}
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end">
-                    <Tooltip title="If your tenure clock was stopped (e.g., for parental leave or a pandemic), enter the number of years here. They are subtracted from your career year so the comparison is fair.">
+                    <Tooltip title="If your tenure clock was stopped (parental leave, medical leave, a pandemic extension), enter the years here. They come off the clock year you are compared at. Papers written during the stop still count: an extension grants calendar time, it does not erase the work.">
                       <InfoIcon color="action" fontSize="small" />
                     </Tooltip>
                   </InputAdornment>

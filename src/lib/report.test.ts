@@ -149,4 +149,43 @@ describe('buildReport subject identity', () => {
     });
     expect(report.subjectRows.find((r) => r.metric === 'pubs')?.value).toBe(1);
   });
+
+  it('does not pretend a missing share is zero, and does not place it', () => {
+    const members = Array.from({ length: 6 }, (_, i) => ({
+      authorId: `https://openalex.org/A${i + 2}`,
+      startYear: 2010,
+      works: [
+        paper({
+          year: 2010,
+          position: 'last',
+          who: `https://openalex.org/A${i + 2}`,
+          impact: 2 + i,
+          id: `Wz${i}`,
+        }),
+      ],
+    }));
+    const { report } = buildReport({
+      subjectName: 'Alex Roe',
+      institution: 'Some University',
+      startYear: 2010,
+      clockExtension: 0,
+      subjectWorks: [],
+      subjectAuthorId: ME,
+      subjectInstitutionRor: JOB,
+      cohortMembers: members,
+      articleTypes: ARTICLES,
+      funnelRows: [],
+      subfieldLabel: 'a subfield',
+      startWindow: [2008, 2018],
+      nowYear: 2016,
+    });
+    expect(report.subjectRows.find((r) => r.metric === 'pubs')?.value).toBe(0);
+    const share = report.subjectRows.find((r) => r.metric === 'lead_share');
+    expect(share?.value).toBeNaN();
+    expect(share?.compared).toBe(false);
+    expect(share?.position).toBe('not compared');
+    const median = report.subjectRows.find((r) => r.metric === 'venue_impact_median');
+    expect(median?.value).toBeNaN();
+    expect(median?.compared).toBe(false);
+  });
 });

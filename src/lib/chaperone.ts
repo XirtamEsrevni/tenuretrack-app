@@ -215,13 +215,16 @@ export function venueLedShare(
   members: CohortMember[],
   articleTypes: string[],
   limit = 15,
+  throughYear = HORIZON_YEARS,
 ): Array<{ venue: string; cohort_papers: number; led_share: number }> {
   const venueMap = new Map<string, { papers: number; led: number }>();
   for (const member of members) {
+    const last = member.startYear + throughYear - 1;
     for (const work of member.works) {
       if (!isJournalArticle(work) || !articleTypes.includes(work.type)) continue;
+      if (work.publication_year < member.startYear || work.publication_year > last) continue;
       const source = work.primary_location?.source;
-      if (!source) continue;
+      if (!source?.display_name) continue;
       const name = source.display_name;
       const existing = venueMap.get(name) ?? { papers: 0, led: 0 };
       existing.papers++;

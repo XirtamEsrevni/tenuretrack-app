@@ -121,7 +121,7 @@ export function plausibleYears(
   windowStart: number,
   windowEnd: number,
 ): boolean {
-  const years = author.affiliations.flatMap((a) => a.years);
+  const years = (author.affiliations ?? []).flatMap((a) => a.years ?? []);
   if (years.length === 0) return false;
   return Math.min(...years) <= windowEnd && Math.max(...years) >= windowStart;
 }
@@ -130,7 +130,7 @@ export function coreTopicShare(author: OpenAlexAuthor, topicIds: string[]): numb
   const wanted = new Set(topicIds.map((id) => shortId(id).toUpperCase()));
   let total = 0;
   let topicWorkCount = 0;
-  for (const topic of author.topics) {
+  for (const topic of author.topics ?? []) {
     const id = shortId(topic.id).toUpperCase();
     if (wanted.has(id)) topicWorkCount += topic.count;
     total += topic.count;

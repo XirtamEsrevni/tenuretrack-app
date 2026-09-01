@@ -6,6 +6,7 @@ import {
   pairedWithinPerson,
   personRoles,
   pooledRates,
+  venueLedShare,
   type PersonRoles,
 } from './chaperone';
 import { signTest } from './stats';
@@ -158,5 +159,25 @@ describe('sign test and paired comparison', () => {
     expect(got.higherOnMiddle).toBe(12);
     expect(got.pValue).toBeLessThan(0.001);
     expect(got.medianMiddleShare!).toBeGreaterThan(got.medianLedShare!);
+  });
+});
+
+describe('venueLedShare', () => {
+  it('counts only papers inside the career window', () => {
+    const members = [
+      {
+        authorId: ME,
+        startYear: 2010,
+        works: [
+          paper({ year: 2008, source: 'S1', position: 'last' }),
+          paper({ year: 2010, source: 'S1', position: 'last' }),
+          paper({ year: 2011, source: 'S1', position: 'middle' }),
+        ],
+      },
+    ];
+    const rows = venueLedShare(members, ARTICLES);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].cohort_papers).toBe(2);
+    expect(rows[0].led_share).toBeCloseTo(0.5);
   });
 });

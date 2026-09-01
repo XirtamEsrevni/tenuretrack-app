@@ -210,7 +210,7 @@ export class OpenAlexClient {
       const url = this.buildURL('authors', params, 'id,display_name,orcid,affiliations,works_count,topics,last_known_institutions');
       const cacheKey = hashKey(['authors-topic', topicShort, countries.join(','), cursor, this.mailto]);
       const data = await this.cachedFetch<{ results: OpenAlexAuthor[]; meta: { count: number } }>(cacheKey, url);
-      all.push(...data.results);
+      all.push(...(data.results ?? []));
       if (this.onProgress) {
         this.onProgress(`Fetching candidates from ${topicShort}...`, `${all.length} authors fetched`);
       }
@@ -233,7 +233,7 @@ export class OpenAlexClient {
       const url = this.buildURL('works', params, 'id,doi,title,publication_year,type,cited_by_count,primary_location,authorships,primary_topic');
       const cacheKey = hashKey(['works-author', authorShort, cursor, this.mailto]);
       const data = await this.cachedFetch<{ results: OpenAlexWork[]; meta: { count: number; next_cursor?: string } }>(cacheKey, url);
-      all.push(...data.results);
+      all.push(...(data.results ?? []));
       if (this.onProgress) {
         this.onProgress(`Fetching works for ${authorShort}...`, `${all.length} works`);
       }
@@ -261,7 +261,7 @@ export class OpenAlexClient {
         const wanted = new Map(
           batch.map((id) => [shortId(id).toUpperCase(), id] as const),
         );
-        for (const work of data.results) {
+        for (const work of data.results ?? []) {
           for (const a of work.authorships) {
             const requestedId = wanted.get(shortId(a.author.id).toUpperCase());
             if (!requestedId) continue;

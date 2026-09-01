@@ -115,13 +115,13 @@ export default function CohortBuild({ progress, building, error, onRun, onBack }
         </Alert>
       )}
 
-      {!building && progress.length > 0 && !error && (
+      {!building && (progress.length > 0 || error) && (
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
           <Button onClick={onBack} color="inherit">
             Back
           </Button>
           <Button variant="contained" onClick={onRun} size="large">
-            Resume build
+            {error ? 'Try again' : 'Resume build'}
           </Button>
         </Box>
       )}

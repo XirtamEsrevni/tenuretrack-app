@@ -37,6 +37,18 @@ describe('resolveInstitution', () => {
     author.affiliations[0].institution.display_name = 'The University of Utah';
     expect(resolveInstitution(author, 'University of Utah')?.ror).toBe('03r0ha626');
   });
+
+  it('does not throw when affiliations are missing', () => {
+    const author = makeAuthor({ ror: '03r0ha626' });
+    (author as { affiliations?: unknown }).affiliations = undefined;
+    author.last_known_institutions = [{
+      id: 'https://openalex.org/I123',
+      display_name: 'University of Utah',
+      type: 'education',
+      ror: 'https://ror.org/03r0ha626',
+    }];
+    expect(resolveInstitution(author, 'University of Utah')?.ror).toBe('03r0ha626');
+  });
 });
 
 describe('proposeTopics', () => {
