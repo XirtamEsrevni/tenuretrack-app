@@ -165,18 +165,21 @@ export class OpenAlexClient {
   async getAuthorsByTopic(topicId: string, countries: string[]): Promise<OpenAlexAuthor[]> {
     const all: OpenAlexAuthor[] = [];
     let cursor = '*';
+    // OpenAlex filter values must use the short entity ID (for example T10001).
+    // Passing its canonical URL causes the API to return a 500 response.
+    const topicShort = topicId.replace('https://openalex.org/', '');
     const countryFilter = countries.length > 0
       ? `,affiliations.institution.country_code:${countries.join('|')}`
       : '';
-    const filter = `topics.id:${topicId},works_count:>10${countryFilter}`;
+    const filter = `topics.id:${topicShort},works_count:>10${countryFilter}`;
     while (true) {
       const params: Record<string, string> = { filter, cursor };
       const url = this.buildURL('authors', params, 'id,display_name,orcid,affiliations,works_count,topics,last_known_institutions');
-      const cacheKey = hashKey(['authors-topic', topicId, countries.join(','), cursor, this.mailto]);
+      const cacheKey = hashKey(['authors-topic', topicShort, countries.join(','), cursor, this.mailto]);
       const data = await this.cachedFetch<{ results: OpenAlexAuthor[]; meta: { count: number } }>(cacheKey, url);
       all.push(...data.results);
       if (this.onProgress) {
-        this.onProgress(`Fetching candidates from ${topicId}...`, `${all.length} authors fetched`);
+        this.onProgress(`Fetching candidates from ${topicShort}...`, `${all.length} authors fetched`);
       }
       if (!data.results || data.results.length === 0) break;
       cursor = (data as unknown as { meta: { next_cursor?: string } }).meta?.next_cursor ?? '';
