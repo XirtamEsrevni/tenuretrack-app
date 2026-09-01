@@ -57,10 +57,23 @@ export interface OpenAlexTopic {
   display_name: string;
 }
 
+const MIN_REQUEST_INTERVAL_MS = 100;
+let lastRequestTime = 0;
+
+async function throttle(): Promise<void> {
+  const now = Date.now();
+  const elapsed = now - lastRequestTime;
+  if (elapsed < MIN_REQUEST_INTERVAL_MS) {
+    await new Promise((r) => setTimeout(r, MIN_REQUEST_INTERVAL_MS - elapsed));
+  }
+  lastRequestTime = Date.now();
+}
+
 async function fetchJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
   const MAX_RETRIES = 5;
   const BASE_DELAY = 1500;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    await throttle();
     const res = await fetch(url, { signal });
     if (res.ok) return res.json();
     if (res.status === 429) throw new QuotaExhausted('OpenAlex daily quota exhausted');
@@ -111,9 +124,10 @@ export class OpenAlexClient {
     this.onProgress = fn;
   }
 
-  private buildURL(endpoint: string, params: Record<string, string>): string {
+  private buildURL(endpoint: string, params: Record<string, string>, select?: string): string {
     const all: Record<string, string> = { ...params, mailto: this.mailto, per_page: '200' };
     if (this.apiKey) all.api_key = this.apiKey;
+    if (select) all.select = select;
     const qs = Object.entries(all)
       .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
       .join('&');
@@ -130,7 +144,7 @@ export class OpenAlexClient {
 
   async getAuthorByOrcid(orcid: string): Promise<OpenAlexAuthor> {
     const params = { filter: `orcid:${orcid}` };
-    const url = this.buildURL('authors', params);
+    const url = this.buildURL('authors', params, 'id,display_name,orcid,affiliations,works_count,topics,last_known_institutions');
     const cacheKey = hashKey(['author-orcid', orcid, this.mailto]);
     const data = await this.cachedFetch<{ results: OpenAlexAuthor[]; meta: { count: number } }>(cacheKey, url);
     if (!data.results || data.results.length === 0) {
@@ -148,15 +162,13 @@ export class OpenAlexClient {
   async getAuthorsByTopic(topicId: string, countries: string[]): Promise<OpenAlexAuthor[]> {
     const all: OpenAlexAuthor[] = [];
     let cursor = '*';
-    let page = 0;
     const countryFilter = countries.length > 0
       ? `,affiliations.institution.country_code:${countries.join('|')}`
       : '';
     const filter = `topics.id:${topicId},works_count:>10${countryFilter}`;
     while (true) {
-      page++;
       const params: Record<string, string> = { filter, cursor };
-      const url = this.buildURL('authors', params);
+      const url = this.buildURL('authors', params, 'id,display_name,orcid,affiliations,works_count,topics,last_known_institutions');
       const cacheKey = hashKey(['authors-topic', topicId, countries.join(','), cursor, this.mailto]);
       const data = await this.cachedFetch<{ results: OpenAlexAuthor[]; meta: { count: number } }>(cacheKey, url);
       all.push(...data.results);
@@ -179,7 +191,7 @@ export class OpenAlexClient {
         filter: `author.id:${authorShort}`,
         cursor,
       };
-      const url = this.buildURL('works', params);
+      const url = this.buildURL('works', params, 'id,doi,title,publication_year,type,cited_by_count,primary_location,authorships,primary_topic');
       const cacheKey = hashKey(['works-author', authorShort, cursor, this.mailto]);
       const data = await this.cachedFetch<{ results: OpenAlexWork[]; meta: { count: number; next_cursor?: string } }>(cacheKey, url);
       all.push(...data.results);
@@ -204,7 +216,7 @@ export class OpenAlexClient {
           filter: `author.id:${ids}`,
           cursor,
         };
-        const url = this.buildURL('works', params);
+        const url = this.buildURL('works', params, 'id,doi,title,publication_year,type,cited_by_count,primary_location,authorships,primary_topic');
         const cacheKey = hashKey(['works-batch', ids, cursor, this.mailto]);
         const data = await this.cachedFetch<{ results: OpenAlexWork[]; meta: { count: number; next_cursor?: string } }>(cacheKey, url);
         for (const work of data.results) {
