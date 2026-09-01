@@ -3,19 +3,25 @@ import { shortId } from './ids';
 
 const BASE = 'https://api.openalex.org';
 
+export interface OpenAlexInstitution {
+  id: string;
+  display_name: string;
+  type: string | null;
+  ror: string | null;
+}
+
 export interface OpenAlexAuthor {
   id: string;
   display_name: string;
   orcid: string | null;
   affiliations: Array<{
-    institution: { id: string; display_name: string; type: string | null; ror: string | null };
+    institution: OpenAlexInstitution;
     years: number[];
   }>;
   works_count: number;
   topics: Array<{ id: string; display_name: string; count: number; share?: number }>;
-  last_known_institutions: Array<{
-    institution: { id: string; display_name: string; type: string | null; ror: string | null };
-  }>;
+  // OpenAlex returns these as a flat institution object, not nested.
+  last_known_institutions: OpenAlexInstitution[];
 }
 
 export interface OpenAlexWork {
@@ -75,7 +81,22 @@ async function fetchJSON<T>(url: string, headers: HeadersInit, signal?: AbortSig
   const BASE_DELAY = 1500;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     await throttle();
-    const res = await fetch(url, { headers, signal });
+    if (signal?.aborted) {
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+    let res: Response;
+    try {
+      res = await fetch(url, { headers, signal });
+    } catch (error) {
+      if (isAbortError(error) || signal?.aborted) {
+        const err = error instanceof Error ? error : new Error('Aborted');
+        err.name = 'AbortError';
+        throw err;
+      }
+      throw error;
+    }
     if (res.ok) return res.json();
     if (res.status === 429) throw new QuotaExhausted('OpenAlex daily quota exhausted');
     if (res.status >= 500 && attempt < MAX_RETRIES) {
@@ -107,6 +128,12 @@ export class QuotaExhausted extends Error {
     super(msg);
     this.name = 'QuotaExhausted';
   }
+}
+
+export function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const name = (error as { name?: string }).name;
+  return name === 'AbortError';
 }
 
 export class OpenAlexClient {

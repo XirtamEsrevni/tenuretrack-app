@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import type { UserDetails, Topic, ReportData, ProgressEvent, WizardStep, FunnelRow } from '../types';
-import { OpenAlexClient, type OpenAlexAuthor } from '../lib/openalex';
+import { OpenAlexClient, isAbortError, type OpenAlexAuthor } from '../lib/openalex';
 import { buildReport, type CohortMember } from '../lib/report';
 import {
   estimateStart,
@@ -17,6 +17,7 @@ import {
   resolveInstitution,
   resolvedStartWindow,
 } from '../lib/subject';
+import { sameId } from '../lib/ids';
 import { exampleReport } from '../data/exampleData';
 
 export function useTenureTrack() {
@@ -50,34 +51,43 @@ export function useTenureTrack() {
 
     addProgress('init', 'Resolving your ORCID with OpenAlex...');
     setDetailsLoading(true);
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
 
     try {
       const client = new OpenAlexClient(details.email, details.apiKey);
       client.setProgressHandler((msg, d) => addProgress('init', msg, d));
+      client.setAbortSignal(signal);
 
       const author = await client.getAuthorByOrcid(details.orcid);
       addProgress('init', `Found: ${author.display_name}`, `${author.works_count} works`);
 
       const place = resolveInstitution(author, details.university);
       if (!place) {
-        setError(
-          'Could not match that university to an OpenAlex affiliation on your record. Use the name as it appears on your papers, or paste a ROR.',
+        addProgress(
+          'init',
+          `Could not match "${details.university}" to an affiliation on your OpenAlex record. Papers will not be institution-anchored.`,
+          'Use the name as it appears on your papers, or paste a ROR, and try again if the subject numbers look too high.',
         );
-        return;
       }
       setSubjectAuthor(author);
-      setInstitutionRor(place.ror);
-      setInstitutionName(place.name);
-      addProgress('init', `Institution: ${place.name}`, `ROR ${place.ror}`);
+      setInstitutionRor(place?.ror ?? '');
+      setInstitutionName(place?.name ?? details.university);
+      if (place?.ror) {
+        addProgress('init', `Institution: ${place.name}`, `ROR ${place.ror}`);
+      }
 
       const works = await client.getWorksByAuthor(author.id);
+      if (signal.aborted) return;
       addProgress('init', `Fetched ${works.length} of your works`);
 
-      const first = firstBylineYear(works, author.id, place.ror);
+      const ror = place?.ror ?? '';
+      const first = ror ? firstBylineYear(works, author.id, ror) : null;
       if (first != null && Math.abs(first - details.startYear) > 1) {
         addProgress(
           'init',
-          `Start year check: first ${place.name} byline is ${first}, appointment given as ${details.startYear}.`,
+          `Start year check: first ${place?.name ?? details.university} byline is ${first}, appointment given as ${details.startYear}.`,
           'A gap of more than a year is often a typo; papers lagging the appointment by one year is normal.',
         );
       }
@@ -85,21 +95,25 @@ export function useTenureTrack() {
       const { topics: proposed, basis } = proposeTopics(
         works,
         author.id,
-        place.ror,
+        ror,
         details.startYear,
       );
       if (basis !== 'anchored') {
         addProgress(
           'init',
-          `Fewer than five institution-anchored papers, so topics were proposed from ${basis === 'since_start' ? 'every article since the appointment' : 'the whole record'}.`,
+          ror
+            ? `Fewer than five institution-anchored papers, so topics were proposed from ${basis === 'since_start' ? 'every article since the appointment' : 'the whole record'}.`
+            : 'Topics were proposed from your papers without an institution filter.',
         );
       }
 
+      if (signal.aborted) return;
       setTopics(proposed);
       setSelectedTopicIds(proposed.map((t) => t.id));
       addProgress('init', `Proposed ${proposed.length} topics from your papers`);
       setStep('topics');
     } catch (e) {
+      if (isAbortError(e)) return;
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('quota') || msg.includes('429')) {
         setError('OpenAlex daily quota exhausted. Add a free API key from openalex.org/settings/api for 10x the daily allowance, or try again tomorrow.');
@@ -124,6 +138,7 @@ export function useTenureTrack() {
     setError(null);
     setProgress([]);
     abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
 
     const details = userDetails;
     const articleTypes = ['article'];
@@ -133,7 +148,7 @@ export function useTenureTrack() {
     try {
       const client = new OpenAlexClient(details.email, details.apiKey);
       client.setProgressHandler((msg, d) => addProgress('cohort', msg, d));
-      client.setAbortSignal(abortRef.current.signal);
+      client.setAbortSignal(signal);
 
       addProgress('cohort', `Subject: ${subjectAuthor.display_name}`);
 
@@ -154,7 +169,7 @@ export function useTenureTrack() {
 
       const uniqueCandidates = new Map<string, OpenAlexAuthor>();
       for (const a of allCandidates) {
-        if (a.id !== subjectAuthor.id) {
+        if (!sameId(a.id, subjectAuthor.id)) {
           uniqueCandidates.set(a.id, a);
         }
       }
@@ -282,7 +297,7 @@ export function useTenureTrack() {
         clockExtension: details.clockExtensionYears,
         subjectWorks,
         subjectAuthorId: subjectAuthor.id,
-        subjectInstitutionRor: institutionRor,
+        subjectInstitutionRor: institutionRor || undefined,
         cohortMembers,
         articleTypes,
         funnelRows,
@@ -291,10 +306,12 @@ export function useTenureTrack() {
         nowYear,
       });
 
+      if (signal.aborted) return;
       setReport(result.report);
       addProgress('report', 'Report ready.');
       setStep('report');
     } catch (e) {
+      if (isAbortError(e)) return;
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('quota') || msg.includes('429')) {
         setError('OpenAlex daily quota exhausted. Add a free API key for 10x the daily allowance, or try again tomorrow. Your progress is cached.');

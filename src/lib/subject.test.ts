@@ -20,8 +20,22 @@ describe('resolveInstitution', () => {
     expect(resolveInstitution(author, '03r0ha626')?.ror).toBe('03r0ha626');
   });
 
-  it('returns null when nothing matches', () => {
-    expect(resolveInstitution(author, 'Some Other College')).toBeNull();
+  it('reads last_known_institutions in the flat OpenAlex shape', () => {
+    const author = makeAuthor({ years: [2014] });
+    author.affiliations = [];
+    author.last_known_institutions = [{
+      id: 'https://openalex.org/I123',
+      display_name: 'University of Utah',
+      type: 'education',
+      ror: 'https://ror.org/03r0ha626',
+    }];
+    expect(resolveInstitution(author, 'University of Utah')?.ror).toBe('03r0ha626');
+  });
+
+  it('still matches when the university string is a substring', () => {
+    const author = makeAuthor({ ror: '03r0ha626' });
+    author.affiliations[0].institution.display_name = 'The University of Utah';
+    expect(resolveInstitution(author, 'University of Utah')?.ror).toBe('03r0ha626');
   });
 });
 

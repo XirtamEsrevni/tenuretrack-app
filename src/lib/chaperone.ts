@@ -1,6 +1,7 @@
 import type { OpenAlexWork } from './openalex';
 import { isJournalArticle, isLed, roleOf } from './metrics';
 import { median, mulberry32, signTest } from './stats';
+import { HORIZON_YEARS } from './subject';
 
 export interface CohortMember {
   authorId: string;
@@ -72,11 +73,17 @@ export function personRoles(
   authorId: string,
   articleTypes: string[],
   cutoff: number | null,
+  startYear?: number,
+  throughYear = HORIZON_YEARS,
 ): PersonRoles {
   if (cutoff == null) return emptyRoles(authorId);
   const counts = emptyRoles(authorId);
+  const last = startYear != null ? startYear + throughYear - 1 : null;
   for (const work of works) {
     if (!isJournalArticle(work) || !articleTypes.includes(work.type)) continue;
+    if (startYear != null && last != null) {
+      if (work.publication_year < startYear || work.publication_year > last) continue;
+    }
     const impact = work.primary_location?.source?.summary_stats?.['2yr_mean_citedness'];
     if (impact == null || isNaN(impact)) continue;
     const role = roleOf(work, authorId);
@@ -243,7 +250,26 @@ export function chaperoneFromMembers(
   paired: PairedTest;
   venues: Array<{ venue: string; cohort_papers: number; led_share: number }>;
 } {
-  const people = members.map((m) => personRoles(m.works, m.authorId, articleTypes, cutoff));
+  const people = members.map((m) =>
+    personRoles(m.works, m.authorId, articleTypes, cutoff, m.startYear),
+  );
+  if (cutoff == null) {
+    return {
+      people,
+      pooled: [],
+      gap: { ledRate: null, middleRate: null, gap: null, lo: null, hi: null, people: 0 },
+      paired: {
+        people: 0,
+        medianLedShare: null,
+        medianMiddleShare: null,
+        higherOnMiddle: 0,
+        higherOnLed: 0,
+        ties: 0,
+        pValue: null,
+      },
+      venues: [],
+    };
+  }
   return {
     people,
     pooled: pooledRates(people),

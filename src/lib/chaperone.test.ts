@@ -46,6 +46,15 @@ describe('personRoles', () => {
     const works = [paper({ year: 2010, position: 'last', source: 'S1', impact: 9 })];
     expect(personRoles(works, ME, ARTICLES, null).ledPapers).toBe(0);
   });
+
+  it('restricts to the career window when a start year is given', () => {
+    const works = [
+      paper({ year: 2008, position: 'last', source: 'S10', impact: 9 }),
+      paper({ year: 2010, position: 'last', source: 'S10', impact: 9 }),
+      paper({ year: 2017, position: 'last', source: 'S10', impact: 9 }),
+    ];
+    expect(personRoles(works, ME, ARTICLES, 5, 2010, 6).ledPapers).toBe(1);
+  });
 });
 
 describe('pooled rates and gap', () => {

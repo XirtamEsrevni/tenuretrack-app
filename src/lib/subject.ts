@@ -1,4 +1,4 @@
-import type { OpenAlexAuthor, OpenAlexWork } from './openalex';
+import type { OpenAlexAuthor, OpenAlexInstitution, OpenAlexWork } from './openalex';
 import type { Topic } from '../types';
 import { hasBylineAt, isJournalArticle } from './metrics';
 import { looksLikeRor, shortId, shortRor } from './ids';
@@ -14,6 +14,27 @@ function normalizeName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+function asInstitution(value: unknown): OpenAlexInstitution | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  if (record.institution && typeof record.institution === 'object') {
+    return asInstitution(record.institution);
+  }
+  if (typeof record.display_name !== 'string') return null;
+  return {
+    id: typeof record.id === 'string' ? record.id : '',
+    display_name: record.display_name,
+    type: typeof record.type === 'string' ? record.type : null,
+    ror: typeof record.ror === 'string' ? record.ror : null,
+  };
+}
+
+function collectInstitutions(author: OpenAlexAuthor): OpenAlexInstitution[] {
+  const fromAffiliations = author.affiliations.map((a) => a.institution);
+  const fromLastKnown = (author.last_known_institutions ?? []).map((item) => asInstitution(item));
+  return [...fromAffiliations, ...fromLastKnown].filter((i): i is OpenAlexInstitution => Boolean(i?.display_name));
+}
+
 export function resolveInstitution(
   author: OpenAlexAuthor,
   query: string,
@@ -21,10 +42,7 @@ export function resolveInstitution(
   const raw = query.trim();
   if (!raw) return null;
 
-  const all = [
-    ...author.affiliations.map((a) => a.institution),
-    ...author.last_known_institutions.map((a) => a.institution),
-  ].filter((i) => i);
+  const all = collectInstitutions(author);
 
   if (looksLikeRor(raw) || /ror\.org/i.test(raw)) {
     const want = shortRor(raw);
@@ -34,7 +52,6 @@ export function resolveInstitution(
 
   const nq = normalizeName(raw);
   const scored = all
-    .filter((i) => i.ror)
     .map((i) => {
       const n = normalizeName(i.display_name);
       let score = 0;
@@ -50,8 +67,9 @@ export function resolveInstitution(
     .filter((x) => x.score >= 1)
     .sort((a, b) => b.score - a.score);
 
-  if (!scored[0]?.i.ror) return null;
-  return { ror: shortRor(scored[0].i.ror), name: scored[0].i.display_name };
+  if (!scored[0]) return null;
+  const ror = scored[0].i.ror ? shortRor(scored[0].i.ror) : '';
+  return { ror, name: scored[0].i.display_name };
 }
 
 export function firstBylineYear(
