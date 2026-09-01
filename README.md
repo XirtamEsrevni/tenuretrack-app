@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/tenuretrack-app-logo.svg" alt="tenuretrack App" width="340">
+  <img src="https://github.com/sp8rks/tenuretrack/raw/main/src/tenuretrack/assets/tenuretrack-logo.png" alt="tenuretrack" width="340">
 </p>
 
 # tenuretrack App
