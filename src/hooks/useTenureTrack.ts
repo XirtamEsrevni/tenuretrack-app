@@ -133,8 +133,7 @@ export function useTenureTrack() {
       addProgress('cohort', 'Building candidate pool from topics...');
       const allCandidates: OpenAlexAuthor[] = [];
       for (const tid of selectedTopicIds) {
-        const fullId = `https://openalex.org/${tid}`;
-        const authors = await client.getAuthorsByTopic(fullId, ['US']);
+        const authors = await client.getAuthorsByTopic(tid, ['US']);
         allCandidates.push(...authors);
       }
 
