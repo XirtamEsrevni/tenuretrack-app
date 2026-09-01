@@ -1,7 +1,9 @@
 <p align="center">
-  <img src="https://github.com/sp8rks/tenuretrack/raw/main/src/tenuretrack/assets/tenuretrack-logo.png" alt="tenuretrack" width="340">
+<picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/sp8rks/tenuretrack/blob/main/assets/tenuretrack-logo-source.png?raw=true">
+    <img src="https://github.com/sp8rks/tenuretrack/blob/main/assets/tenuretrack-logo-source.png?raw=true" alt="tenuretrack" width="340">
+  </picture>
 </p>
-
 # tenuretrack App
 
 **Nobody tells assistant professors the numbers. This app helps compute them.**
