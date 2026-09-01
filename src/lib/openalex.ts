@@ -58,18 +58,34 @@ export interface OpenAlexTopic {
 }
 
 async function fetchJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const MAX_RETRIES = 3;
-  const BASE_DELAY = 1000;
+  const MAX_RETRIES = 5;
+  const BASE_DELAY = 1500;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const res = await fetch(url, { signal });
     if (res.ok) return res.json();
     if (res.status === 429) throw new QuotaExhausted('OpenAlex daily quota exhausted');
     if (res.status >= 500 && attempt < MAX_RETRIES) {
-      const delay = BASE_DELAY * Math.pow(2, attempt);
+      const delay = BASE_DELAY * Math.pow(2, attempt) + Math.random() * 500;
       await new Promise((r) => setTimeout(r, delay));
       continue;
     }
-    throw new Error(`OpenAlex ${res.status}: ${await res.text()}`);
+    if (res.status >= 500) {
+      throw new Error(
+        'OpenAlex is experiencing server issues (500 Internal Server Error). ' +
+        'This is a temporary problem on their end, not an issue with your input. ' +
+        'Please try again in a few minutes. Adding a free API key from openalex.org/settings/api ' +
+        'can also help by giving you access to a higher-rate pool.'
+      );
+    }
+    const body = await res.text();
+    let summary = body;
+    try {
+      const parsed = JSON.parse(body);
+      summary = parsed.error || parsed.message || body;
+    } catch {
+      if (body.length > 200) summary = body.slice(0, 200) + '...';
+    }
+    throw new Error(`OpenAlex ${res.status}: ${summary}`);
   }
   throw new Error('OpenAlex: max retries exceeded');
 }
