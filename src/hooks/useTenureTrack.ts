@@ -17,6 +17,7 @@ export function useTenureTrack() {
   const [report, setReport] = useState<ReportData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const addProgress = useCallback((stage: string, message: string, detail?: string) => {
@@ -34,6 +35,7 @@ export function useTenureTrack() {
     }
 
     addProgress('init', 'Resolving your ORCID with OpenAlex...');
+    setDetailsLoading(true);
 
     try {
       const client = new OpenAlexClient(details.email, details.apiKey);
@@ -90,6 +92,8 @@ export function useTenureTrack() {
       } else {
         setError(msg);
       }
+    } finally {
+      setDetailsLoading(false);
     }
   }, [addProgress]);
 
@@ -305,6 +309,7 @@ export function useTenureTrack() {
     report,
     error,
     building,
+    detailsLoading,
     submitDetails,
     confirmTopics,
     runBuild,

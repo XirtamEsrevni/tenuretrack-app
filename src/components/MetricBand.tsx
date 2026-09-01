@@ -3,6 +3,7 @@ import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
 import type { SubjectRow, BenchmarkRow } from '../types';
 
+
 interface Props {
   row: SubjectRow;
   benchmark?: BenchmarkRow;

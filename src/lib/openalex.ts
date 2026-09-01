@@ -58,12 +58,20 @@ export interface OpenAlexTopic {
 }
 
 async function fetchJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(url, { signal });
-  if (!res.ok) {
+  const MAX_RETRIES = 3;
+  const BASE_DELAY = 1000;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const res = await fetch(url, { signal });
+    if (res.ok) return res.json();
     if (res.status === 429) throw new QuotaExhausted('OpenAlex daily quota exhausted');
+    if (res.status >= 500 && attempt < MAX_RETRIES) {
+      const delay = BASE_DELAY * Math.pow(2, attempt);
+      await new Promise((r) => setTimeout(r, delay));
+      continue;
+    }
     throw new Error(`OpenAlex ${res.status}: ${await res.text()}`);
   }
-  return res.json();
+  throw new Error('OpenAlex: max retries exceeded');
 }
 
 export class QuotaExhausted extends Error {

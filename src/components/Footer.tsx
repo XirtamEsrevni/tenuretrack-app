@@ -26,6 +26,9 @@ export default function Footer() {
         </Link>
         .
       </Typography>
+      <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.5 }}>
+        This independent app is not affiliated with, endorsed by, or sanctioned by Professor Taylor Sparks or the University of Utah.
+      </Typography>
       <Typography variant="caption" color="text.secondary">
         Data: <Link href="https://openalex.org" target="_blank" rel="noopener">OpenAlex</Link> (Priem, Piwowar &amp; Orr, 2022), CC0.
         Chaperone method: Sekara et al., <Link href="https://doi.org/10.1073/pnas.1800471115" target="_blank" rel="noopener">PNAS 2018</Link>.

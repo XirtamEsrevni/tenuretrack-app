@@ -15,8 +15,10 @@ import CohortBuild from './components/CohortBuild';
 import ReportView from './components/ReportView';
 import DownloadStep from './components/DownloadStep';
 import Footer from './components/Footer';
+import type { WizardStep } from './types';
 
 const STEPS = ['Your details', 'Review topics', 'Build cohort', 'Your report', 'Download'];
+const STEPS_KEYS: WizardStep[] = ['details', 'topics', 'build', 'report', 'download'];
 const LOGO_URL = 'https://github.com/sp8rks/tenuretrack/raw/main/src/tenuretrack/assets/tenuretrack-logo-dark.png';
 
 function App() {
@@ -38,7 +40,7 @@ function App() {
       <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>
         <Paper elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Container maxWidth="lg">
-            <Box sx={{ display: 'flex', alignItems: 'center', py: 2, gap: 1.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 2, gap: 1.5 }}>
               <Box
                 component="img"
                 src={LOGO_URL}
@@ -51,28 +53,27 @@ function App() {
               <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
                 Where does your record stand?
               </Typography>
-              <Typography variant="caption" color="text.disabled" sx={{ ml: 2, display: { xs: 'none', sm: 'block' } }}>
-                Original concept by Taylor Sparks · University of Utah
-              </Typography>
             </Box>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ display: 'block', pb: 1.5, pl: { sm: 6 }, textAlign: { xs: 'left', sm: 'left' } }}
-            >
-              This independent app is not affiliated with, endorsed by, or sanctioned by Professor Taylor Sparks or the University of Utah.
-            </Typography>
           </Container>
         </Paper>
 
         <Container maxWidth="lg" sx={{ py: 4, flex: 1 }}>
           <Box sx={{ maxWidth: 800, mx: 'auto', mb: 4 }}>
             <Stepper activeStep={activeStep} alternativeLabel>
-              {STEPS.map((label) => (
-                <Step key={label}>
-                  <StepLabel>{label}</StepLabel>
-                </Step>
-              ))}
+              {STEPS.map((label, i) => {
+                const stepKey = STEPS_KEYS[i];
+                const canNavigate = i < activeStep && (stepKey !== 'report' || tt.report);
+                return (
+                  <Step key={label}>
+                    <StepLabel
+                      onClick={() => canNavigate && tt.setStep(stepKey)}
+                      sx={canNavigate ? { cursor: 'pointer', '&:hover .MuiStepLabel-label': { color: 'primary.main' } } : undefined}
+                    >
+                      {label}
+                    </StepLabel>
+                  </Step>
+                );
+              })}
             </Stepper>
           </Box>
 
@@ -82,6 +83,8 @@ function App() {
                 onSubmit={tt.submitDetails}
                 onLoadExample={tt.loadExample}
                 error={tt.error}
+                loading={tt.detailsLoading}
+                loadingMessage={tt.progress[tt.progress.length - 1]?.message}
               />
             )}
 

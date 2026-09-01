@@ -12,18 +12,22 @@ import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import CircularProgress from '@mui/material/CircularProgress';
+import Fade from '@mui/material/Fade';
 import type { UserDetails } from '../types';
 
 interface Props {
   onSubmit: (details: UserDetails) => void;
   onLoadExample: () => void;
   error: string | null;
+  loading?: boolean;
+  loadingMessage?: string;
 }
 
 const ORCID_RE = /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export default function DetailsForm({ onSubmit, onLoadExample, error }: Props) {
+export default function DetailsForm({ onSubmit, onLoadExample, error, loading, loadingMessage }: Props) {
   const [email, setEmail] = useState('');
   const [orcid, setOrcid] = useState('');
   const [university, setUniversity] = useState('');
@@ -169,13 +173,27 @@ export default function DetailsForm({ onSubmit, onLoadExample, error }: Props) {
         )}
 
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>
-          <Button onClick={onLoadExample} color="inherit">
+          <Button onClick={onLoadExample} color="inherit" disabled={loading}>
             View example report
           </Button>
-          <Button variant="contained" onClick={handleSubmit} size="large">
-            Continue
+          <Button variant="contained" onClick={handleSubmit} size="large" disabled={loading}>
+            {loading ? 'Working...' : 'Continue'}
           </Button>
         </Box>
+
+        <Fade in={loading}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
+            <CircularProgress size={24} />
+            <Box>
+              <Typography variant="body2" color="primary" fontWeight={500}>
+                {loadingMessage || 'Resolving your ORCID with OpenAlex...'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                This may take a few seconds while we look up your record.
+              </Typography>
+            </Box>
+          </Box>
+        </Fade>
       </Paper>
     </Box>
   );
