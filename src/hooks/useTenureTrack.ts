@@ -99,6 +99,8 @@ export function useTenureTrack() {
 
   const confirmTopics = useCallback((topicIds: string[]) => {
     setSelectedTopicIds(topicIds);
+    setProgress([]);
+    setError(null);
     setStep('build');
   }, []);
 
