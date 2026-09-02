@@ -16,13 +16,17 @@ export default function MetricBand({ row, benchmark }: Props) {
     return isPercent ? `${(v * 100).toFixed(1)}%` : v < 100 ? v.toFixed(1) : v.toFixed(0);
   };
 
-  if (!row.compared || isNaN(row.cohort_p25) || isNaN(row.cohort_p75)) {
+  if (!row.compared || isNaN(row.cohort_p25) || isNaN(row.cohort_p75) || isNaN(row.value)) {
+    const why =
+      !row.compared && !isNaN(row.value)
+        ? 'not compared (citations accumulate with time)'
+        : 'insufficient data for comparison';
     return (
       <Box sx={{ py: 1.5, display: 'flex', alignItems: 'center', gap: 2 }}>
         <Typography sx={{ minWidth: 220, fontSize: '0.875rem', fontWeight: 500 }}>{row.label}</Typography>
         <Typography sx={{ fontSize: '1.1rem', fontWeight: 700 }}>{fmt(row.value)}</Typography>
         <Typography variant="caption" color="text.disabled">
-          {row.compared ? 'insufficient data for comparison' : 'not compared (citations accumulate with time)'}
+          {why}
         </Typography>
       </Box>
     );

@@ -5,18 +5,20 @@ import type {
   FunnelRow,
   ChaperonePooledRow,
   ChaperonePairedRow,
-  ChaperoneVenueRow,
   ReportData,
 } from '../types';
-import { quantile, bootstrapCI, signTest } from './stats';
+import { quantile, bootstrapCI } from './stats';
 import {
   computeMetrics,
   computeTopQuartileCutoff,
   isJournalArticle,
-  isLed,
-  roleOf,
 } from './metrics';
 import type { OpenAlexWork } from './openalex';
+import { chaperoneFromMembers, type CohortMember } from './chaperone';
+import { clockYear, comparisonHorizon, HORIZON_YEARS } from './subject';
+import { sameId } from './ids';
+
+export type { CohortMember };
 
 const METRIC_LABELS: Record<string, string> = {
   pubs: 'Journal articles',
@@ -28,14 +30,32 @@ const METRIC_LABELS: Record<string, string> = {
   top_quartile_share: 'Share in top-quartile venues',
 };
 
-const METRIC_ORDER = ['pubs', 'led', 'lead_share', 'citations', 'h_index', 'venue_impact_median', 'top_quartile_share'];
+const METRIC_ORDER = [
+  'pubs',
+  'led',
+  'lead_share',
+  'citations',
+  'h_index',
+  'venue_impact_median',
+  'top_quartile_share',
+];
 
 const BOOTSTRAP_ITERATIONS = 500;
 
-export interface CohortMember {
-  authorId: string;
+export interface BuildReportInput {
+  subjectName: string;
+  institution: string;
   startYear: number;
-  works: OpenAlexWork[];
+  clockExtension: number;
+  subjectWorks: OpenAlexWork[];
+  subjectAuthorId: string;
+  subjectInstitutionRor?: string;
+  cohortMembers: CohortMember[];
+  articleTypes: string[];
+  funnelRows: FunnelRow[];
+  subfieldLabel: string;
+  startWindow: [number, number];
+  nowYear?: number;
 }
 
 export interface BuildResult {
@@ -43,42 +63,59 @@ export interface BuildResult {
   funnel: FunnelRow[];
 }
 
-export function buildReport(
-  subjectName: string,
-  institution: string,
-  startYear: number,
-  clockExtension: number,
-  subjectWorks: OpenAlexWork[],
-  cohortMembers: CohortMember[],
-  articleTypes: string[],
-  funnelRows: FunnelRow[],
-  subfieldLabel: string,
-): BuildResult {
-  const currentYear = new Date().getFullYear();
-  const currentCareerYear = currentYear - startYear + 1 - clockExtension;
-  const horizonYears = 6;
-  const comparedAtYear = Math.min(currentCareerYear, horizonYears);
+function metricValue(
+  metrics: ReturnType<typeof computeMetrics>,
+  key: string,
+): number | null {
+  const map: Record<string, number | null> = {
+    pubs: metrics.pubs,
+    led: metrics.led,
+    lead_share: metrics.leadShare,
+    citations: metrics.citations,
+    h_index: metrics.hIndex,
+    venue_impact_median: metrics.venueImpactMedian,
+    top_quartile_share: metrics.topQuartileShare,
+  };
+  return map[key] ?? null;
+}
 
-  const allCohortWorks = cohortMembers.flatMap((m) => m.works);
+export function positionOf(value: number, p25: number, p50: number, p75: number): string {
+  if (isNaN(p25) || isNaN(p50) || isNaN(p75)) return 'not compared';
+  if (value < p25) return 'below p25';
+  if (value === p50) return 'at the median';
+  if (value < p50) return 'between p25 and the median';
+  if (value <= p75) return 'between the median and p75';
+  return 'above p75';
+}
+
+export function buildReport(input: BuildReportInput): BuildResult {
+  const nowYear = input.nowYear ?? new Date().getFullYear();
+  const calendarYear = nowYear - input.startYear + 1;
+  const currentCareerYear = clockYear(input.startYear, input.clockExtension, nowYear);
+  const comparedAtYear = comparisonHorizon(currentCareerYear, HORIZON_YEARS);
+  // Stopped-clock years grant calendar time; they do not remove the work done
+  // during them. Count papers across the calendar years the subject actually
+  // had, and compare at the clock year.
+  const subjectWindow = comparedAtYear + input.clockExtension;
+
+  const allCohortWorks = input.cohortMembers.flatMap((m) => m.works);
   const topQuartileCutoff = computeTopQuartileCutoff(allCohortWorks);
 
   const benchmarkRows: BenchmarkRow[] = [];
-  for (let year = 1; year <= horizonYears; year++) {
+  for (let year = 1; year <= HORIZON_YEARS; year++) {
     for (const metricKey of METRIC_ORDER) {
       const values: number[] = [];
-      for (const member of cohortMembers) {
+      for (const member of input.cohortMembers) {
         const metrics = computeMetrics(
           member.works,
           member.authorId,
           member.startYear,
           year,
-          articleTypes,
+          input.articleTypes,
           topQuartileCutoff,
         );
-        const val = metrics[metricKey as keyof typeof metrics];
-        if (val != null && !isNaN(val as number)) {
-          values.push(val as number);
-        }
+        const val = metricValue(metrics, metricKey);
+        if (val != null && !isNaN(val)) values.push(val);
       }
       values.sort((a, b) => a - b);
       if (values.length < 5) {
@@ -112,26 +149,25 @@ export function buildReport(
   }
 
   const subjectMetrics = computeMetrics(
-    subjectWorks,
-    'subject',
-    startYear,
-    comparedAtYear,
-    articleTypes,
+    input.subjectWorks,
+    input.subjectAuthorId,
+    input.startYear,
+    subjectWindow,
+    input.articleTypes,
     topQuartileCutoff,
+    input.subjectInstitutionRor,
   );
 
   const cohortAtComparison = benchmarkRows.filter((r) => r.career_year === comparedAtYear);
   const subjectRows: SubjectRow[] = METRIC_ORDER.map((metricKey) => {
     const cohortRow = cohortAtComparison.find((r) => r.metric === metricKey)!;
-    const subjectVal = subjectMetrics[metricKey as keyof typeof subjectMetrics];
-    const val = subjectVal as number;
-    const compared = metricKey !== 'citations';
+    const subjectVal = metricValue(subjectMetrics, metricKey);
+    const val = subjectVal ?? NaN;
+    const missing = subjectVal == null || isNaN(subjectVal);
+    const compared = metricKey !== 'citations' && !missing;
     let position = 'not compared';
     if (compared && !isNaN(cohortRow.p25)) {
-      if (val < cohortRow.p25) position = 'below p25';
-      else if (val < cohortRow.p50) position = 'between p25 and the median';
-      else if (val < cohortRow.p75) position = 'between the median and p75';
-      else position = 'above p75';
+      position = positionOf(val, cohortRow.p25, cohortRow.p50, cohortRow.p75);
     }
     return {
       career_year: currentCareerYear,
@@ -168,149 +204,69 @@ export function buildReport(
     .sort((a, b) => b.cohort_papers - a.cohort_papers)
     .slice(0, 15);
 
-  const chaperonePooled = computeChaperonePooled(cohortMembers, topQuartileCutoff, articleTypes);
-  const chaperonePaired = computeChaperonePaired(cohortMembers, topQuartileCutoff, articleTypes);
-  const chaperoneVenues = computeChaperoneVenues(cohortMembers, articleTypes);
+  const chaperone = chaperoneFromMembers(
+    input.cohortMembers,
+    topQuartileCutoff,
+    input.articleTypes,
+  );
+
+  const chaperonePooled: ChaperonePooledRow[] = chaperone.pooled.map((r) => ({
+    role: r.role,
+    people: r.people,
+    papers: r.papers,
+    rate: r.rate ?? 0,
+  }));
+
+  const chaperonePaired: ChaperonePairedRow[] = [
+    { metric: 'median_led_share', value: chaperone.paired.medianLedShare ?? 0 },
+    { metric: 'median_middle_share', value: chaperone.paired.medianMiddleShare ?? 0 },
+    { metric: 'sign_test_p', value: chaperone.paired.pValue ?? 1 },
+    { metric: 'paired_people', value: chaperone.paired.people },
+    { metric: 'higher_not_led', value: chaperone.paired.higherOnMiddle },
+    { metric: 'higher_led', value: chaperone.paired.higherOnLed },
+    { metric: 'same', value: chaperone.paired.ties },
+  ];
 
   const institutionCount = new Set(
-    cohortMembers.flatMap((m) =>
+    input.cohortMembers.flatMap((m) =>
       m.works.flatMap((w) =>
         w.authorships
-          .filter((a) => a.author.id === m.authorId)
+          .filter((a) => sameId(a.author.id, m.authorId))
           .flatMap((a) => a.institutions.map((i) => i.id)),
       ),
     ),
   ).size;
 
   const report: ReportData = {
-    subjectName,
-    institution,
-    startYear,
+    subjectName: input.subjectName,
+    institution: input.institution,
+    startYear: input.startYear,
     currentCareerYear,
+    calendarYear,
     comparedAtYear,
-    cohortSize: cohortMembers.length,
+    clockExtensionYears: input.clockExtension,
+    cohortSize: input.cohortMembers.length,
     institutionCount,
-    startWindow: [startYear - 10, startYear + 10],
-    subfieldLabel,
+    startWindow: input.startWindow,
+    subfieldLabel: input.subfieldLabel,
     subjectRows,
     benchmarkRows,
     venueRows,
-    funnelRows: funnelRows,
-    chaperonePooled: chaperonePooled,
-    chaperonePaired: chaperonePaired,
-    chaperoneVenues: chaperoneVenues,
-    gapValue: (chaperonePooled.find((r) => r.role === 'middle')?.rate ?? 0) - (chaperonePooled.find((r) => r.role === 'led')?.rate ?? 0),
-    gapLow: 0,
-    gapHigh: 0,
-    signTestP: chaperonePaired.find((r) => r.metric === 'sign_test_p')?.value ?? 1,
-    pairedPeople: chaperonePaired.find((r) => r.metric === 'paired_people')?.value ?? 0,
-    pairedHigherNotLed: chaperonePaired.find((r) => r.metric === 'higher_not_led')?.value ?? 0,
-    pairedHigherLed: chaperonePaired.find((r) => r.metric === 'higher_led')?.value ?? 0,
-    pairedSame: chaperonePaired.find((r) => r.metric === 'same')?.value ?? 0,
+    funnelRows: input.funnelRows,
+    chaperonePooled,
+    chaperonePaired,
+    chaperoneVenues: chaperone.venues,
+    gapValue: chaperone.gap.gap ?? 0,
+    gapLow: chaperone.gap.lo ?? 0,
+    gapHigh: chaperone.gap.hi ?? 0,
+    signTestP: chaperone.paired.pValue ?? 1,
+    pairedPeople: chaperone.paired.people,
+    pairedHigherNotLed: chaperone.paired.higherOnMiddle,
+    pairedHigherLed: chaperone.paired.higherOnLed,
+    pairedSame: chaperone.paired.ties,
   };
 
-  return { report, funnel: funnelRows };
+  return { report, funnel: input.funnelRows };
 }
 
-function computeChaperonePooled(
-  members: CohortMember[],
-  cutoff: number | null,
-  articleTypes: string[],
-): ChaperonePooledRow[] {
-  if (cutoff == null) return [];
-  const counts = { led: { people: new Set<string>(), papers: 0, topQ: 0 }, first_not_led: { people: new Set<string>(), papers: 0, topQ: 0 }, middle: { people: new Set<string>(), papers: 0, topQ: 0 } };
-  for (const member of members) {
-    for (const work of member.works) {
-      if (!isJournalArticle(work) || !articleTypes.includes(work.type)) continue;
-      const impact = work.primary_location?.source?.summary_stats?.['2yr_mean_citedness'];
-      if (impact == null || isNaN(impact)) continue;
-      const role = roleOf(work, member.authorId);
-      counts[role].papers++;
-      counts[role].people.add(member.authorId);
-      if (impact >= cutoff) counts[role].topQ++;
-    }
-  }
-  return [
-    { role: 'Led (last or corresponding)', people: counts.led.people.size, papers: counts.led.papers, rate: counts.led.papers > 0 ? counts.led.topQ / counts.led.papers : 0 },
-    { role: 'First author, not leading', people: counts.first_not_led.people.size, papers: counts.first_not_led.papers, rate: counts.first_not_led.papers > 0 ? counts.first_not_led.topQ / counts.first_not_led.papers : 0 },
-    { role: 'Middle author', people: counts.middle.people.size, papers: counts.middle.papers, rate: counts.middle.papers > 0 ? counts.middle.topQ / counts.middle.papers : 0 },
-  ];
-}
-
-function computeChaperonePaired(
-  members: CohortMember[],
-  cutoff: number | null,
-  articleTypes: string[],
-): ChaperonePairedRow[] {
-  if (cutoff == null) return [];
-  let higherNotLed = 0;
-  let higherLed = 0;
-  let same = 0;
-  let pairedPeople = 0;
-  for (const member of members) {
-    const ledPapers: boolean[] = [];
-    const middlePapers: boolean[] = [];
-    for (const work of member.works) {
-      if (!isJournalArticle(work) || !articleTypes.includes(work.type)) continue;
-      const impact = work.primary_location?.source?.summary_stats?.['2yr_mean_citedness'];
-      if (impact == null || isNaN(impact)) continue;
-      const role = roleOf(work, member.authorId);
-      const inTopQ = impact >= cutoff;
-      if (role === 'led') ledPapers.push(inTopQ);
-      else if (role === 'middle') middlePapers.push(inTopQ);
-    }
-    if (ledPapers.length >= 3 && middlePapers.length >= 3) {
-      pairedPeople++;
-      const ledRate = ledPapers.filter(Boolean).length / ledPapers.length;
-      const middleRate = middlePapers.filter(Boolean).length / middlePapers.length;
-      if (middleRate > ledRate) higherNotLed++;
-      else if (ledRate > middleRate) higherLed++;
-      else same++;
-    }
-  }
-  const p = signTest(higherNotLed, higherLed);
-  return [
-    { metric: 'median_led_share', value: 0.182 },
-    { metric: 'median_middle_share', value: 0.250 },
-    { metric: 'sign_test_p', value: p },
-    { metric: 'paired_people', value: pairedPeople },
-    { metric: 'higher_not_led', value: higherNotLed },
-    { metric: 'higher_led', value: higherLed },
-    { metric: 'same', value: same },
-  ];
-}
-
-function computeChaperoneVenues(
-  members: CohortMember[],
-  articleTypes: string[],
-): ChaperoneVenueRow[] {
-  const venueMap = new Map<string, { papers: number; led: number }>();
-  for (const member of members) {
-    for (const work of member.works) {
-      if (!isJournalArticle(work) || !articleTypes.includes(work.type)) continue;
-      const source = work.primary_location?.source;
-      if (!source) continue;
-      const name = source.display_name;
-      const existing = venueMap.get(name) ?? { papers: 0, led: 0 };
-      existing.papers++;
-      if (isLed(work, member.authorId)) existing.led++;
-      venueMap.set(name, existing);
-    }
-  }
-  return [...venueMap.entries()]
-    .map(([venue, v]) => ({
-      venue,
-      cohort_papers: v.papers,
-      led_share: v.papers > 0 ? v.led / v.papers : 0,
-    }))
-    .sort((a, b) => b.cohort_papers - a.cohort_papers)
-    .slice(0, 15);
-}
-
-export function positionLabel(value: number, p25: number, p50: number, p75: number): string {
-  if (isNaN(p25) || isNaN(p50) || isNaN(p75)) return 'not compared';
-  if (value < p25) return 'below p25';
-  if (value < p50) return 'between p25 and the median';
-  if (value < p75) return 'between the median and p75';
-  return 'above p75';
-}
+export { positionOf as positionLabel };

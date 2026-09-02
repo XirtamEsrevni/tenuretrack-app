@@ -1,20 +1,27 @@
 import { cacheGet, cacheSet, hashKey } from './cache';
+import { shortId } from './ids';
 
 const BASE = 'https://api.openalex.org';
+
+export interface OpenAlexInstitution {
+  id: string;
+  display_name: string;
+  type: string | null;
+  ror: string | null;
+}
 
 export interface OpenAlexAuthor {
   id: string;
   display_name: string;
   orcid: string | null;
   affiliations: Array<{
-    institution: { id: string; display_name: string; type: string | null; ror: string | null };
+    institution: OpenAlexInstitution;
     years: number[];
   }>;
   works_count: number;
   topics: Array<{ id: string; display_name: string; count: number; share?: number }>;
-  last_known_institutions: Array<{
-    institution: { id: string; display_name: string; type: string | null; ror: string | null };
-  }>;
+  // OpenAlex returns these as a flat institution object, not nested.
+  last_known_institutions: OpenAlexInstitution[];
 }
 
 export interface OpenAlexWork {
@@ -74,7 +81,22 @@ async function fetchJSON<T>(url: string, headers: HeadersInit, signal?: AbortSig
   const BASE_DELAY = 1500;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     await throttle();
-    const res = await fetch(url, { headers, signal });
+    if (signal?.aborted) {
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+    let res: Response;
+    try {
+      res = await fetch(url, { headers, signal });
+    } catch (error) {
+      if (isAbortError(error) || signal?.aborted) {
+        const err = error instanceof Error ? error : new Error('Aborted');
+        err.name = 'AbortError';
+        throw err;
+      }
+      throw error;
+    }
     if (res.ok) return res.json();
     if (res.status === 429) throw new QuotaExhausted('OpenAlex daily quota exhausted');
     if (res.status >= 500 && attempt < MAX_RETRIES) {
@@ -108,10 +130,17 @@ export class QuotaExhausted extends Error {
   }
 }
 
+export function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const name = (error as { name?: string }).name;
+  return name === 'AbortError';
+}
+
 export class OpenAlexClient {
   private mailto: string;
   private apiKey: string;
   private onProgress?: (msg: string, detail?: string) => void;
+  private signal?: AbortSignal;
 
   constructor(mailto: string, apiKey: string) {
     this.mailto = mailto.trim();
@@ -120,6 +149,10 @@ export class OpenAlexClient {
 
   setProgressHandler(fn: (msg: string, detail?: string) => void): void {
     this.onProgress = fn;
+  }
+
+  setAbortSignal(signal: AbortSignal): void {
+    this.signal = signal;
   }
 
   private buildURL(endpoint: string, params: Record<string, string>, select?: string): string {
@@ -140,7 +173,7 @@ export class OpenAlexClient {
     const headers: Record<string, string> = this.apiKey
       ? { Authorization: `Bearer ${this.apiKey}` }
       : {};
-    const data = await fetchJSON<T>(url, headers);
+    const data = await fetchJSON<T>(url, headers, this.signal);
     await cacheSet(cacheKey, data);
     return data;
   }
@@ -177,7 +210,7 @@ export class OpenAlexClient {
       const url = this.buildURL('authors', params, 'id,display_name,orcid,affiliations,works_count,topics,last_known_institutions');
       const cacheKey = hashKey(['authors-topic', topicShort, countries.join(','), cursor, this.mailto]);
       const data = await this.cachedFetch<{ results: OpenAlexAuthor[]; meta: { count: number } }>(cacheKey, url);
-      all.push(...data.results);
+      all.push(...(data.results ?? []));
       if (this.onProgress) {
         this.onProgress(`Fetching candidates from ${topicShort}...`, `${all.length} authors fetched`);
       }
@@ -200,7 +233,7 @@ export class OpenAlexClient {
       const url = this.buildURL('works', params, 'id,doi,title,publication_year,type,cited_by_count,primary_location,authorships,primary_topic');
       const cacheKey = hashKey(['works-author', authorShort, cursor, this.mailto]);
       const data = await this.cachedFetch<{ results: OpenAlexWork[]; meta: { count: number; next_cursor?: string } }>(cacheKey, url);
-      all.push(...data.results);
+      all.push(...(data.results ?? []));
       if (this.onProgress) {
         this.onProgress(`Fetching works for ${authorShort}...`, `${all.length} works`);
       }
@@ -225,11 +258,15 @@ export class OpenAlexClient {
         const url = this.buildURL('works', params, 'id,doi,title,publication_year,type,cited_by_count,primary_location,authorships,primary_topic');
         const cacheKey = hashKey(['works-batch', ids, cursor, this.mailto]);
         const data = await this.cachedFetch<{ results: OpenAlexWork[]; meta: { count: number; next_cursor?: string } }>(cacheKey, url);
-        for (const work of data.results) {
+        const wanted = new Map(
+          batch.map((id) => [shortId(id).toUpperCase(), id] as const),
+        );
+        for (const work of data.results ?? []) {
           for (const a of work.authorships) {
-            const aid = a.author.id;
-            if (!result.has(aid)) result.set(aid, []);
-            result.get(aid)!.push(work);
+            const requestedId = wanted.get(shortId(a.author.id).toUpperCase());
+            if (!requestedId) continue;
+            if (!result.has(requestedId)) result.set(requestedId, []);
+            result.get(requestedId)!.push(work);
           }
         }
         if (this.onProgress && i % 200 === 0) {

@@ -30,7 +30,7 @@ export default function TopicReview({ topics, selectedIds, onConfirm, onBack }: 
   };
 
   const selectedCount = selected.size;
-  const showWarning = selectedCount < 2;
+  const showWarning = selectedCount < 1;
 
   return (
     <Box sx={{ maxWidth: 720, mx: 'auto' }}>
@@ -45,7 +45,7 @@ export default function TopicReview({ topics, selectedIds, onConfirm, onBack }: 
 
       {showWarning && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          Select at least two topics for a meaningful cohort.
+          Select at least one topic so a cohort can be built.
         </Alert>
       )}
 
@@ -98,7 +98,7 @@ export default function TopicReview({ topics, selectedIds, onConfirm, onBack }: 
           variant="contained"
           onClick={handleConfirm}
           size="large"
-          disabled={selectedCount < 2}
+          disabled={selectedCount < 1}
         >
           Build cohort ({selectedCount} topics)
         </Button>

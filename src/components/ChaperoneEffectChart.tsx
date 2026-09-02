@@ -127,6 +127,8 @@ export default function ChaperoneEffectChart({ report }: Props) {
           </Box>
 
           {/* Paired sign test visual */}
+          {report.pairedPeople > 0 && (
+          <>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
             Paired comparison ({report.pairedPeople} people)
           </Typography>
@@ -138,6 +140,8 @@ export default function ChaperoneEffectChart({ report }: Props) {
           <Typography variant="caption" color="text.secondary">
             Sign test p = {report.signTestP.toFixed(4)} — comparing each person against themselves
           </Typography>
+          </>
+          )}
         </Box>
       </Box>
     </Box>

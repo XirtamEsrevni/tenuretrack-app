@@ -1,4 +1,6 @@
 import type { OpenAlexWork } from './openalex';
+import { sameId, sameRor, shortRor } from './ids';
+import { median as medianOf } from './stats';
 
 const PREPRINT_SERVERS = new Set([
   'arxiv',
@@ -15,7 +17,7 @@ export function isJournalArticle(work: OpenAlexWork): boolean {
   if (work.type !== 'article') return false;
   const source = work.primary_location?.source;
   if (!source) return false;
-  const name = source.display_name.toLowerCase();
+  const name = (source.display_name ?? '').toLowerCase();
   for (const preprint of PREPRINT_SERVERS) {
     if (name.includes(preprint)) return false;
   }
@@ -23,13 +25,13 @@ export function isJournalArticle(work: OpenAlexWork): boolean {
 }
 
 export function isLed(work: OpenAlexWork, authorId: string): boolean {
-  const authorship = work.authorships.find((a) => a.author.id === authorId);
+  const authorship = work.authorships.find((a) => sameId(a.author.id, authorId));
   if (!authorship) return false;
   return authorship.author_position === 'last' || authorship.is_corresponding === true;
 }
 
 export function roleOf(work: OpenAlexWork, authorId: string): 'led' | 'first_not_led' | 'middle' {
-  const authorship = work.authorships.find((a) => a.author.id === authorId);
+  const authorship = work.authorships.find((a) => sameId(a.author.id, authorId));
   if (!authorship) return 'middle';
   if (authorship.author_position === 'last' || authorship.is_corresponding === true) return 'led';
   if (authorship.author_position === 'first') return 'first_not_led';
@@ -37,9 +39,27 @@ export function roleOf(work: OpenAlexWork, authorId: string): 'led' | 'first_not
 }
 
 export function institutionsOn(work: OpenAlexWork, authorId: string): string[] {
-  const authorship = work.authorships.find((a) => a.author.id === authorId);
+  const authorship = work.authorships.find((a) => sameId(a.author.id, authorId));
   if (!authorship) return [];
-  return authorship.institutions.map((i) => i.ror || i.id).filter(Boolean);
+  const out: string[] = [];
+  for (const inst of authorship.institutions) {
+    if (!inst.ror) continue;
+    const short = shortRor(inst.ror);
+    if (short && !out.includes(short)) out.push(short);
+  }
+  return out;
+}
+
+export function hasBylineAt(work: OpenAlexWork, authorId: string, ror: string): boolean {
+  if (!ror) return false;
+  const want = shortRor(ror);
+  const authorship = work.authorships.find((a) => sameId(a.author.id, authorId));
+  if (!authorship) return false;
+  return authorship.institutions.some((i) => {
+    if (i.ror && sameRor(i.ror, want)) return true;
+    if (i.id && sameRor(i.id, want)) return true;
+    return false;
+  });
 }
 
 export interface WorkMetrics {
@@ -61,14 +81,13 @@ export function computeMetrics(
   topQuartileCutoff: number | null,
   anchorInstitution?: string,
 ): WorkMetrics {
+  const last = startYear + throughYear - 1;
   const windowWorks = works.filter((w) => {
     if (!isJournalArticle(w)) return false;
     if (!articleTypes.includes(w.type)) return false;
-    const careerYear = w.publication_year - startYear + 1;
-    if (careerYear < 1 || careerYear > throughYear) return false;
+    if (w.publication_year < startYear || w.publication_year > last) return false;
     if (anchorInstitution) {
-      const insts = institutionsOn(w, authorId);
-      if (!insts.includes(anchorInstitution)) return false;
+      if (!hasBylineAt(w, authorId, anchorInstitution)) return false;
     }
     return true;
   });
@@ -85,9 +104,7 @@ export function computeMetrics(
     .map((w) => w.primary_location?.source?.summary_stats?.['2yr_mean_citedness'])
     .filter((v): v is number => v != null && !isNaN(v));
 
-  const venueImpactMedian = impacts.length > 0
-    ? impacts.sort((a, b) => a - b)[Math.floor(impacts.length / 2)]
-    : null;
+  const venueImpactMedian = impacts.length > 0 ? medianOf(impacts) : null;
 
   let topQuartileShare: number | null = null;
   if (topQuartileCutoff != null && impacts.length > 0) {
@@ -113,7 +130,7 @@ export function computeTopQuartileCutoff(allWorks: OpenAlexWork[]): number | nul
     .map((w) => w.primary_location?.source?.summary_stats?.['2yr_mean_citedness'])
     .filter((v): v is number => v != null && !isNaN(v))
     .sort((a, b) => a - b);
-  if (impacts.length === 0) return null;
+  if (impacts.length < 4) return null;
   const pos = (impacts.length - 1) * 0.75;
   const lo = Math.floor(pos);
   const hi = Math.ceil(pos);

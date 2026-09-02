@@ -49,11 +49,19 @@ function chaperoneToCSV(data: ReportData): string {
   return lines.join('\n');
 }
 
+function fmtNum(value: number, percent: boolean): string {
+  if (value == null || Number.isNaN(value)) return '—';
+  return percent ? value.toFixed(2) : String(value);
+}
+
 function reportToMarkdown(data: ReportData): string {
   const lines: string[] = [];
   lines.push(`# ${data.subjectName} against ${data.subfieldLabel}, at career year ${data.comparedAtYear}`);
   lines.push('');
-  lines.push(`${data.subjectName} started a tenure-line appointment at ${data.institution} in ${data.startYear} and is now in year ${data.currentCareerYear} of it.`);
+  lines.push(`${data.subjectName} started a tenure-line appointment at ${data.institution} in ${data.startYear} and is now in clock year ${data.currentCareerYear} of it.`);
+  if (data.clockExtensionYears > 0) {
+    lines.push(`The clock was stopped for ${data.clockExtensionYears} year${data.clockExtensionYears === 1 ? '' : 's'}. Papers are counted across all ${data.comparedAtYear + data.clockExtensionYears} calendar years of the appointment, and the comparison is at clock year ${data.comparedAtYear}.`);
+  }
   if (data.currentCareerYear > 6) {
     lines.push(`That is longer than the cohort's window, so both sides are read at year 6: a ${data.currentCareerYear}-year record set against a 6-year one would credit the extra years to one side.`);
   }
@@ -69,10 +77,11 @@ function reportToMarkdown(data: ReportData): string {
   lines.push('| Through year ' + data.comparedAtYear + ' | This record | Cohort p25 | Cohort median | Cohort p75 | Where it falls |');
   lines.push('|---|---|---|---|---|---|');
   for (const r of data.subjectRows) {
-    const val = r.metric === 'lead_share' || r.metric === 'top_quartile_share' ? r.value.toFixed(2) : String(r.value);
-    const p25 = r.metric === 'lead_share' || r.metric === 'top_quartile_share' ? r.cohort_p25.toFixed(2) : String(r.cohort_p25);
-    const p50 = r.metric === 'lead_share' || r.metric === 'top_quartile_share' ? r.cohort_p50.toFixed(2) : String(r.cohort_p50);
-    const p75 = r.metric === 'lead_share' || r.metric === 'top_quartile_share' ? r.cohort_p75.toFixed(2) : String(r.cohort_p75);
+    const percent = r.metric === 'lead_share' || r.metric === 'top_quartile_share';
+    const val = fmtNum(r.value, percent);
+    const p25 = fmtNum(r.cohort_p25, percent);
+    const p50 = fmtNum(r.cohort_p50, percent);
+    const p75 = fmtNum(r.cohort_p75, percent);
     lines.push(`| ${r.label} | ${val} | ${p25} | ${p50} | ${p75} | ${r.position} |`);
   }
   lines.push('');
