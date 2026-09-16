@@ -20,3 +20,9 @@ export function looksLikeRor(value: string): boolean {
   const s = shortRor(value.trim());
   return /^0[a-z0-9]{6,}$/i.test(s);
 }
+
+/** ORCID `0000-0002-1825-0097` from a URL or a bare id. */
+export function shortOrcid(value: string): string {
+  const text = value.trim().replace(/^https?:\/\/orcid\.org\//i, '').toUpperCase();
+  return /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/.test(text) ? text : '';
+}

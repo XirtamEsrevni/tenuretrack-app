@@ -2,64 +2,97 @@ import type { OpenAlexWork } from './openalex';
 import { sameId, sameRor, shortRor } from './ids';
 import { median as medianOf } from './stats';
 
-const PREPRINT_SERVERS = new Set([
-  'arxiv',
-  'biorxiv',
-  'chemrxiv',
-  'medrxiv',
-  'psyarxiv',
-  'ssrn',
-  'osf',
-  'preprints.org',
-]);
+export const PREPRINT_SOURCE_TYPES = new Set(['repository']);
 
-export function isJournalArticle(work: OpenAlexWork): boolean {
-  if (work.type !== 'article') return false;
-  const source = work.primary_location?.source;
-  if (!source) return false;
-  const name = (source.display_name ?? '').toLowerCase();
-  for (const preprint of PREPRINT_SERVERS) {
-    if (name.includes(preprint)) return false;
-  }
+export type AuthorIds = string | string[];
+
+function wantedIds(authorId: AuthorIds): string[] {
+  return (Array.isArray(authorId) ? authorId : [authorId]).filter(Boolean);
+}
+
+export function bylinesOf(work: OpenAlexWork, authorId: AuthorIds): OpenAlexWork['authorships'] {
+  const wanted = wantedIds(authorId);
+  return (work.authorships ?? []).filter((a) => wanted.some((id) => sameId(a.author.id, id)));
+}
+
+export function isJournalArticle(work: OpenAlexWork, articleTypes: string[] = ['article']): boolean {
+  if (!articleTypes.includes(work.type)) return false;
+  const sourceType = work.primary_location?.source?.type ?? '';
+  if (PREPRINT_SOURCE_TYPES.has(sourceType)) return false;
   return true;
 }
 
-export function isLed(work: OpenAlexWork, authorId: string): boolean {
-  const authorship = work.authorships.find((a) => sameId(a.author.id, authorId));
-  if (!authorship) return false;
-  return authorship.author_position === 'last' || authorship.is_corresponding === true;
+export function isLed(work: OpenAlexWork, authorId: AuthorIds): boolean {
+  return bylinesOf(work, authorId).some(
+    (a) => a.author_position === 'last' || a.is_corresponding === true,
+  );
 }
 
-export function roleOf(work: OpenAlexWork, authorId: string): 'led' | 'first_not_led' | 'middle' {
-  const authorship = work.authorships.find((a) => sameId(a.author.id, authorId));
-  if (!authorship) return 'middle';
-  if (authorship.author_position === 'last' || authorship.is_corresponding === true) return 'led';
-  if (authorship.author_position === 'first') return 'first_not_led';
+export function roleOf(work: OpenAlexWork, authorId: AuthorIds): 'led' | 'first_not_led' | 'middle' {
+  const found = bylinesOf(work, authorId);
+  if (found.length === 0) return 'middle';
+  if (found.some((b) => b.author_position === 'last' || b.is_corresponding === true)) return 'led';
+  if (found.some((b) => b.author_position === 'first')) return 'first_not_led';
   return 'middle';
 }
 
-export function institutionsOn(work: OpenAlexWork, authorId: string): string[] {
-  const authorship = work.authorships.find((a) => sameId(a.author.id, authorId));
-  if (!authorship) return [];
+export function institutionsOn(work: OpenAlexWork, authorId: AuthorIds): string[] {
   const out: string[] = [];
-  for (const inst of authorship.institutions) {
-    if (!inst.ror) continue;
-    const short = shortRor(inst.ror);
-    if (short && !out.includes(short)) out.push(short);
+  for (const authorship of bylinesOf(work, authorId)) {
+    for (const inst of authorship.institutions ?? []) {
+      if (!inst.ror) continue;
+      const short = shortRor(inst.ror);
+      if (short && !out.includes(short)) out.push(short);
+    }
   }
   return out;
 }
 
-export function hasBylineAt(work: OpenAlexWork, authorId: string, ror: string): boolean {
+export function hasBylineAt(work: OpenAlexWork, authorId: AuthorIds, ror: string): boolean {
   if (!ror) return false;
   const want = shortRor(ror);
-  const authorship = work.authorships.find((a) => sameId(a.author.id, authorId));
-  if (!authorship) return false;
-  return authorship.institutions.some((i) => {
-    if (i.ror && sameRor(i.ror, want)) return true;
-    if (i.id && sameRor(i.id, want)) return true;
-    return false;
-  });
+  for (const authorship of bylinesOf(work, authorId)) {
+    for (const inst of authorship.institutions ?? []) {
+      if (inst.ror && sameRor(inst.ror, want)) return true;
+      if (inst.id && sameRor(inst.id, want)) return true;
+    }
+  }
+  return false;
+}
+
+export function normalizeDoi(value: string | null | undefined): string {
+  const text = (value ?? '').trim().toLowerCase();
+  if (!text) return '';
+  const parts = text.split('doi.org/');
+  return parts[parts.length - 1];
+}
+
+export function normalizeTitle(title: string): string {
+  return (title || '')
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function workKey(work: OpenAlexWork): string {
+  const doi = normalizeDoi(work.doi);
+  if (doi) return doi;
+  return `${normalizeTitle(work.title ?? '')}|${work.publication_year ?? 0}`;
+}
+
+export function unionWorks(groups: OpenAlexWork[][]): OpenAlexWork[] {
+  const unioned = new Map<string, OpenAlexWork>();
+  for (const works of groups) {
+    for (const work of works) {
+      if (!work.publication_year) continue;
+      const key = workKey(work);
+      if (!unioned.has(key)) unioned.set(key, work);
+    }
+  }
+  return [...unioned.values()].sort(
+    (a, b) => b.publication_year - a.publication_year || a.title.localeCompare(b.title) || a.id.localeCompare(b.id),
+  );
 }
 
 export interface WorkMetrics {
@@ -74,7 +107,7 @@ export interface WorkMetrics {
 
 export function computeMetrics(
   works: OpenAlexWork[],
-  authorId: string,
+  authorId: AuthorIds,
   startYear: number,
   throughYear: number,
   articleTypes: string[],
@@ -83,8 +116,7 @@ export function computeMetrics(
 ): WorkMetrics {
   const last = startYear + throughYear - 1;
   const windowWorks = works.filter((w) => {
-    if (!isJournalArticle(w)) return false;
-    if (!articleTypes.includes(w.type)) return false;
+    if (!isJournalArticle(w, articleTypes)) return false;
     if (w.publication_year < startYear || w.publication_year > last) return false;
     if (anchorInstitution) {
       if (!hasBylineAt(w, authorId, anchorInstitution)) return false;
@@ -126,7 +158,7 @@ function computeHIndex(sortedCitations: number[]): number {
 
 export function computeTopQuartileCutoff(allWorks: OpenAlexWork[]): number | null {
   const impacts = allWorks
-    .filter(isJournalArticle)
+    .filter((w) => isJournalArticle(w))
     .map((w) => w.primary_location?.source?.summary_stats?.['2yr_mean_citedness'])
     .filter((v): v is number => v != null && !isNaN(v))
     .sort((a, b) => a - b);
