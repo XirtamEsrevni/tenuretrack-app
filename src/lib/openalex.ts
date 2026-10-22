@@ -1,5 +1,5 @@
 import { cacheGet, cacheSet, hashKey } from './cache';
-import { shortId } from './ids';
+import { shortId, shortOrcid, shortRor } from './ids';
 
 const BASE = 'https://api.openalex.org';
 
@@ -8,11 +8,14 @@ export interface OpenAlexInstitution {
   display_name: string;
   type: string | null;
   ror: string | null;
+  country_code?: string | null;
+  works_count?: number;
 }
 
 export interface OpenAlexAuthor {
   id: string;
   display_name: string;
+  display_name_alternatives?: string[];
   orcid: string | null;
   affiliations: Array<{
     institution: OpenAlexInstitution;
@@ -179,14 +182,22 @@ export class OpenAlexClient {
   }
 
   async getAuthorByOrcid(orcid: string): Promise<OpenAlexAuthor> {
-    const params = { filter: `orcid:${orcid}` };
-    const url = this.buildURL('authors', params, 'id,display_name,orcid,affiliations,works_count,topics,last_known_institutions');
-    const cacheKey = hashKey(['author-orcid', orcid, this.mailto]);
-    const data = await this.cachedFetch<{ results: OpenAlexAuthor[]; meta: { count: number } }>(cacheKey, url);
-    if (!data.results || data.results.length === 0) {
-      throw new Error(`No author found for ORCID ${orcid}`);
+    const short = shortOrcid(orcid) || orcid.trim();
+    const url = this.buildURL(
+      `authors/orcid:${short}`,
+      {},
+      'id,display_name,display_name_alternatives,orcid,affiliations,works_count,topics,last_known_institutions',
+    );
+    const cacheKey = hashKey(['author-orcid-lookup', short, this.mailto]);
+    try {
+      return await this.cachedFetch<OpenAlexAuthor>(cacheKey, url);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('404')) {
+        throw new Error(`No author found for ORCID ${short}`);
+      }
+      throw error;
     }
-    return data.results[0];
   }
 
   async getAuthorById(id: string): Promise<OpenAlexAuthor> {
@@ -293,5 +304,46 @@ export class OpenAlexClient {
     const url = this.buildURL(`works/${shortId}`, {});
     const data = await this.cachedFetch<{ primary_topic: OpenAlexTopic; topics?: OpenAlexTopic[] }>(cacheKey, url);
     return data.topics ?? (data.primary_topic ? [data.primary_topic] : []);
+  }
+
+  async getInstitutionByRor(ror: string): Promise<OpenAlexInstitution | null> {
+    const short = shortRor(ror);
+    const url = this.buildURL(
+      `institutions/ror:${short}`,
+      {},
+      'id,ror,display_name,country_code,type,works_count',
+    );
+    const cacheKey = hashKey(['institution-ror', short, this.mailto]);
+    try {
+      return await this.cachedFetch<OpenAlexInstitution>(cacheKey, url);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('404')) return null;
+      throw error;
+    }
+  }
+
+  async searchInstitutions(query: string): Promise<OpenAlexInstitution[]> {
+    const url = this.buildURL(
+      'institutions',
+      { search: query },
+      'id,ror,display_name,country_code,type,works_count',
+    );
+    const cacheKey = hashKey(['institutions-search', query, this.mailto]);
+    const data = await this.cachedFetch<{ results: OpenAlexInstitution[] }>(cacheKey, url);
+    return (data.results ?? []).filter((r) => r.ror);
+  }
+
+  async searchAuthorsAtInstitution(name: string, ror: string): Promise<OpenAlexAuthor[]> {
+    const short = shortRor(ror);
+    if (!name.trim() || !short) return [];
+    const url = this.buildURL(
+      'authors',
+      { filter: `affiliations.institution.ror:${short}`, search: name },
+      'id,display_name,display_name_alternatives,orcid,affiliations,topics,works_count,last_known_institutions',
+    );
+    const cacheKey = hashKey(['authors-at-institution', short, name, this.mailto]);
+    const data = await this.cachedFetch<{ results: OpenAlexAuthor[] }>(cacheKey, url);
+    return data.results ?? [];
   }
 }

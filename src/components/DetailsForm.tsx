@@ -106,7 +106,7 @@ export default function DetailsForm({ onSubmit, onLoadExample, error, loading, l
             value={university}
             onChange={(e) => setUniversity(e.target.value)}
             error={touched && !!errors.university}
-            helperText={touched ? errors.university : 'Name as it appears on your papers, or a ROR.'}
+            helperText={touched ? errors.university : 'Full official name as it appears on your papers, or a ROR. The subject window is anchored to this byline.'}
             fullWidth
           />
 

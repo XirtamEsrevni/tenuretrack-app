@@ -14,16 +14,19 @@ import {
   HORIZON_YEARS,
   MAX_CANDIDATES,
   proposeTopics,
-  resolveInstitution,
+  rankInstitutionHits,
+  isSplitProfile,
   resolvedStartWindow,
 } from '../lib/subject';
-import { sameId, shortId } from '../lib/ids';
+import { looksLikeRor, shortId, shortRor } from '../lib/ids';
+import { unionWorks } from '../lib/metrics';
 import { exampleReport } from '../data/exampleData';
 
 export function useTenureTrack() {
   const [step, setStep] = useState<WizardStep>('details');
   const [userDetails, setUserDetails] = useState<UserDetails | null>(null);
   const [subjectAuthor, setSubjectAuthor] = useState<OpenAlexAuthor | null>(null);
+  const [subjectAuthorIds, setSubjectAuthorIds] = useState<string[]>([]);
   const [institutionRor, setInstitutionRor] = useState<string>('');
   const [institutionName, setInstitutionName] = useState<string>('');
   const [topics, setTopics] = useState<Topic[]>([]);
@@ -60,50 +63,64 @@ export function useTenureTrack() {
       client.setProgressHandler((msg, d) => addProgress('init', msg, d));
       client.setAbortSignal(signal);
 
+      let place: { ror: string; name: string } | null = null;
+      if (looksLikeRor(details.university) || /ror\.org/i.test(details.university)) {
+        const inst = await client.getInstitutionByRor(details.university);
+        if (inst?.ror) place = { ror: shortRor(inst.ror), name: inst.display_name };
+      } else {
+        const hits = await client.searchInstitutions(details.university);
+        place = rankInstitutionHits(hits);
+      }
+      if (!place) {
+        setError(
+          `OpenAlex found no institution matching "${details.university}". Try the full official name, or paste the ROR from ror.org.`,
+        );
+        return;
+      }
+
       const author = await client.getAuthorByOrcid(details.orcid);
       addProgress('init', `Found: ${author.display_name}`, `${author.works_count} works`);
+      addProgress('init', `Institution: ${place.name}`, `ROR ${place.ror}`);
 
-      const place = resolveInstitution(author, details.university);
-      if (!place) {
+      const candidates = await client.searchAuthorsAtInstitution(author.display_name, place.ror);
+      const splits = candidates.filter((c) => isSplitProfile(author, c, place.ror));
+      const authorIds = [author.id, ...splits.map((s) => s.id)];
+      if (splits.length > 0) {
         addProgress(
           'init',
-          `Could not match "${details.university}" to an affiliation on your OpenAlex record. Papers will not be institution-anchored.`,
-          'Use the name as it appears on your papers, or paste a ROR, and try again if the subject numbers look too high.',
+          `${splits.length} extra OpenAlex profile(s) at ${place.name} look like the same person and were merged in. Their papers are counted once.`,
         );
       }
-      setSubjectAuthor(author);
-      setInstitutionRor(place?.ror ?? '');
-      setInstitutionName(place?.name ?? details.university);
-      if (place?.ror) {
-        addProgress('init', `Institution: ${place.name}`, `ROR ${place.ror}`);
-      }
 
-      const works = await client.getWorksByAuthor(author.id);
+      const worksMap = await client.getWorksByAuthors(authorIds);
       if (signal.aborted) return;
+      const works = unionWorks(authorIds.map((id) => worksMap.get(id) ?? []));
       addProgress('init', `Fetched ${works.length} of your works`);
 
-      const ror = place?.ror ?? '';
-      const first = ror ? firstBylineYear(works, author.id, ror) : null;
+      setSubjectAuthor(author);
+      setSubjectAuthorIds(authorIds);
+      setInstitutionRor(place.ror);
+      setInstitutionName(place.name);
+
+      const first = firstBylineYear(works, authorIds, place.ror);
       if (first != null && Math.abs(first - details.startYear) > 1) {
         addProgress(
           'init',
-          `Start year check: first ${place?.name ?? details.university} byline is ${first}, appointment given as ${details.startYear}.`,
+          `Start year check: first ${place.name} byline is ${first}, appointment given as ${details.startYear}.`,
           'A gap of more than a year is often a typo; papers lagging the appointment by one year is normal.',
         );
       }
 
       const { topics: proposed, basis } = proposeTopics(
         works,
-        author.id,
-        ror,
+        authorIds,
+        place.ror,
         details.startYear,
       );
       if (basis !== 'anchored') {
         addProgress(
           'init',
-          ror
-            ? `Fewer than five institution-anchored papers, so topics were proposed from ${basis === 'since_start' ? 'every article since the appointment' : 'the whole record'}.`
-            : 'Topics were proposed from your papers without an institution filter.',
+          `Fewer than five institution-anchored papers, so topics were proposed from ${basis === 'since_start' ? 'every article since the appointment' : 'the whole record'}.`,
         );
       }
 
@@ -145,6 +162,8 @@ export function useTenureTrack() {
     const articleTypes = ['article'];
     const nowYear = new Date().getFullYear();
     const startWindow = resolvedStartWindow(details.startYear, HORIZON_YEARS, nowYear);
+    const authorIds = subjectAuthorIds.length > 0 ? subjectAuthorIds : [subjectAuthor.id];
+    const subjectIds = new Set(authorIds.map((id) => shortId(id).toUpperCase()));
 
     try {
       const client = new OpenAlexClient(details.email, details.apiKey);
@@ -153,8 +172,16 @@ export function useTenureTrack() {
 
       addProgress('cohort', `Subject: ${subjectAuthor.display_name}`);
 
+      if (!institutionRor) {
+        setError(
+          'The institution could not be resolved, so the subject window cannot be anchored. Go back and use the official university name or a ROR.',
+        );
+        return;
+      }
+
       addProgress('cohort', 'Fetching your works...');
-      const subjectWorks = await client.getWorksByAuthor(subjectAuthor.id);
+      const subjectWorksMap = await client.getWorksByAuthors(authorIds);
+      const subjectWorks = unionWorks(authorIds.map((id) => subjectWorksMap.get(id) ?? []));
       addProgress('cohort', `Fetched ${subjectWorks.length} subject works`);
 
       const funnelRows: FunnelRow[] = [];
@@ -170,7 +197,7 @@ export function useTenureTrack() {
 
       const uniqueCandidates = new Map<string, OpenAlexAuthor>();
       for (const a of allCandidates) {
-        if (sameId(a.id, subjectAuthor.id)) continue;
+        if (subjectIds.has(shortId(a.id).toUpperCase())) continue;
         uniqueCandidates.set(shortId(a.id).toUpperCase(), a);
       }
       funnelRows.push({
@@ -296,8 +323,8 @@ export function useTenureTrack() {
         startYear: details.startYear,
         clockExtension: details.clockExtensionYears,
         subjectWorks,
-        subjectAuthorId: subjectAuthor.id,
-        subjectInstitutionRor: institutionRor || undefined,
+        subjectAuthorId: authorIds,
+        subjectInstitutionRor: institutionRor,
         cohortMembers,
         articleTypes,
         funnelRows,
@@ -321,7 +348,7 @@ export function useTenureTrack() {
     } finally {
       setBuilding(false);
     }
-  }, [userDetails, subjectAuthor, institutionRor, institutionName, selectedTopicIds, topics, addProgress]);
+  }, [userDetails, subjectAuthor, subjectAuthorIds, institutionRor, institutionName, selectedTopicIds, topics, addProgress]);
 
   const loadExample = useCallback(() => {
     setReport(exampleReport);
@@ -333,6 +360,7 @@ export function useTenureTrack() {
     setStep('details');
     setUserDetails(null);
     setSubjectAuthor(null);
+    setSubjectAuthorIds([]);
     setInstitutionRor('');
     setInstitutionName('');
     setTopics([]);

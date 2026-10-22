@@ -48,7 +48,7 @@ export interface BuildReportInput {
   startYear: number;
   clockExtension: number;
   subjectWorks: OpenAlexWork[];
-  subjectAuthorId: string;
+  subjectAuthorId: string | string[];
   subjectInstitutionRor?: string;
   cohortMembers: CohortMember[];
   articleTypes: string[];

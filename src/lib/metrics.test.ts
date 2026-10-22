@@ -5,11 +5,15 @@ import {
   hasBylineAt,
   institutionsOn,
   isJournalArticle,
+  isLed,
+  unionWorks,
+  workKey,
 } from './metrics';
 import { hIndex } from './stats';
 import { JOB, ME, paper } from './testWorks';
 
 const ARTICLES = ['article'];
+const ALT = 'https://openalex.org/A1000002';
 
 describe('hIndex', () => {
   it.each([
@@ -45,13 +49,20 @@ describe('window and metrics', () => {
     expect(computeMetrics(works, ME, 2010, 6, ARTICLES, null).pubs).toBe(1);
   });
 
-  it('drops preprint servers even when typed as article', () => {
+  it('drops a repository even when OpenAlex types the work as an article', () => {
     const works = [
-      paper({ year: 2010, sourceName: 'arXiv' }),
-      paper({ year: 2011, sourceName: 'Nature' }),
+      paper({ year: 2010, sourceName: 'arXiv', sourceType: 'repository' }),
+      paper({ year: 2011, sourceName: 'Nature', sourceType: 'journal' }),
     ];
     expect(isJournalArticle(works[0])).toBe(false);
     expect(computeMetrics(works, ME, 2010, 6, ARTICLES, null).pubs).toBe(1);
+  });
+
+  it('keeps an article with no source', () => {
+    const work = paper({ year: 2010 });
+    work.primary_location = { source: null };
+    expect(isJournalArticle(work)).toBe(true);
+    expect(computeMetrics([work], ME, 2010, 6, ARTICLES, null).pubs).toBe(1);
   });
 
   it('counts a record correctly, including corresponding as led', () => {
@@ -120,6 +131,50 @@ describe('window and metrics', () => {
     expect(hasBylineAt(works[0], ME, JOB)).toBe(true);
     expect(computeMetrics(works, ME, 2010, 6, ARTICLES, null, JOB).pubs).toBe(1);
     expect(computeMetrics(works, ME, 2010, 6, ARTICLES, null).pubs).toBe(2);
+  });
+
+  it('drops visiting and prior-lab papers from the subject window the way Colab does', () => {
+    // Taylor Sparks shape: 35 Utah-anchored articles vs 44 if the byline filter is skipped.
+    const utah = Array.from({ length: 35 }, (_, i) =>
+      paper({ year: 2013 + (i % 6), ror: JOB, id: `U${i}`, position: i < 17 ? 'last' : 'middle' }),
+    );
+    const elsewhere = Array.from({ length: 9 }, (_, i) =>
+      paper({ year: 2013 + (i % 6), ror: '03harvard', id: `H${i}`, position: 'last' }),
+    );
+    const works = [...utah, ...elsewhere];
+    expect(computeMetrics(works, ME, 2013, 6, ARTICLES, null).pubs).toBe(44);
+    const anchored = computeMetrics(works, ME, 2013, 6, ARTICLES, null, JOB);
+    expect(anchored.pubs).toBe(35);
+    expect(anchored.led).toBe(17);
+  });
+
+  it('takes the strongest role when split profiles put the same person on a paper twice', () => {
+    const work = paper({
+      year: 2014,
+      position: 'middle',
+      ror: JOB,
+      extraWho: [{ id: ALT, position: 'last', ror: JOB }],
+    });
+    expect(isLed(work, ME)).toBe(false);
+    expect(isLed(work, [ME, ALT])).toBe(true);
+    expect(hasBylineAt(work, [ME, ALT], JOB)).toBe(true);
+    expect(computeMetrics([work], [ME, ALT], 2013, 6, ARTICLES, null, JOB).led).toBe(1);
+  });
+});
+
+describe('work identity', () => {
+  it('unions split profiles by DOI, case-insensitive', () => {
+    const a = paper({ year: 2014, id: 'W1', doi: 'https://doi.org/10.1/Same' });
+    const b = paper({ year: 2014, id: 'W2', doi: '10.1/same', who: ALT });
+    expect(workKey(a)).toBe(workKey(b));
+    expect(unionWorks([[a], [b]])).toHaveLength(1);
+  });
+
+  it('falls back to a normalized title and year when there is no DOI', () => {
+    const a = paper({ year: 2014, id: 'W1', doi: null, title: 'The Same  Paper!' });
+    const b = paper({ year: 2014, id: 'W2', doi: null, title: 'the same paper', who: ALT });
+    expect(workKey(a)).toBe('the same paper|2014');
+    expect(unionWorks([[a], [b]])).toHaveLength(1);
   });
 });
 
